@@ -1,0 +1,179 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Colores rústicos y cálidos */
+  --background: #faf8f3;
+  --foreground: #2d2416;
+  --card: #ffffff;
+  --card-foreground: #2d2416;
+  --popover: #ffffff;
+  --popover-foreground: #2d2416;
+  --primary: #c17a5c;
+  --primary-foreground: #ffffff;
+  --secondary: #d4a574;
+  --secondary-foreground: #ffffff;
+  --muted: #e8e0d5;
+  --muted-foreground: #6b5d4f;
+  --accent: #8b6f47;
+  --accent-foreground: #ffffff;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #e0d5c8;
+  --input: #f5f1ea;
+  --ring: #c17a5c;
+  --chart-1: #c17a5c;
+  --chart-2: #d4a574;
+  --chart-3: #8b6f47;
+  --chart-4: #6b5d4f;
+  --chart-5: #a0886f;
+  --radius: 0.625rem;
+  --sidebar: #2d2416;
+  --sidebar-foreground: #faf8f3;
+  --sidebar-primary: #c17a5c;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #d4a574;
+  --sidebar-accent-foreground: #2d2416;
+  --sidebar-border: #3d3426;
+  --sidebar-ring: #c17a5c;
+}
+
+.dark {
+  --background: #1a1410;
+  --foreground: #faf8f3;
+  --card: #2d2416;
+  --card-foreground: #faf8f3;
+  --popover: #2d2416;
+  --popover-foreground: #faf8f3;
+  --primary: #e8a876;
+  --primary-foreground: #1a1410;
+  --secondary: #d4a574;
+  --secondary-foreground: #1a1410;
+  --muted: #3d3426;
+  --muted-foreground: #c0b5a8;
+  --accent: #c8a882;
+  --accent-foreground: #1a1410;
+  --destructive: #ef4444;
+  --destructive-foreground: #1a1410;
+  --border: #3d3426;
+  --input: #3d3426;
+  --ring: #e8a876;
+  --chart-1: #e8a876;
+  --chart-2: #d4a574;
+  --chart-3: #c8a882;
+  --chart-4: #a0886f;
+  --chart-5: #8b7355;
+  --sidebar: #2d2416;
+  --sidebar-foreground: #faf8f3;
+  --sidebar-primary: #e8a876;
+  --sidebar-primary-foreground: #1a1410;
+  --sidebar-accent: #d4a574;
+  --sidebar-accent-foreground: #1a1410;
+  --sidebar-border: #3d3426;
+  --sidebar-ring: #e8a876;
+}
+
+@theme inline {
+  --font-sans: "Geist", "Geist Fallback";
+  --font-mono: "Geist Mono", "Geist Mono Fallback";
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Textura rústica sutil */
+  body {
+    background-image: repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 2px,
+        rgba(139, 111, 71, 0.03) 2px,
+        rgba(139, 111, 71, 0.03) 4px
+      ),
+      repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(139, 111, 71, 0.02) 2px,
+        rgba(139, 111, 71, 0.02) 4px
+      );
+  }
+}
+
+@layer components {
+  .wooden-card {
+    @apply bg-card text-card-foreground rounded-lg shadow-md border border-border transition-all hover:shadow-lg;
+  }
+
+  /* Reemplazado hover:bg-opacity-90 con opacity-90 (Tailwind v4 válido) */
+  .rustic-button {
+    @apply bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium transition-all active:scale-95;
+  }
+
+  .rustic-button:hover {
+    opacity: 0.9;
+  }
+
+  .rustic-button-secondary {
+    @apply bg-secondary text-secondary-foreground px-4 py-2 rounded-md font-medium transition-all active:scale-95;
+  }
+
+  .rustic-button-secondary:hover {
+    opacity: 0.9;
+  }
+
+  .section-title {
+    @apply text-3xl font-bold text-foreground mb-2;
+  }
+
+  .section-subtitle {
+    @apply text-muted-foreground text-base;
+  }
+
+  .input-rustic {
+    @apply w-full px-3 py-2 bg-input text-foreground border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary placeholder-muted-foreground;
+  }
+}
