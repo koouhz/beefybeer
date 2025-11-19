@@ -1,9 +1,11 @@
 // src/layout/Layout.jsx
 import { useState, useEffect } from "react";
-import { Outlet } from "react-router-dom"; // ← Import Outlet
-import Sidebar from "../components/Sidebar";
+// Se elimina la importación de 'Outlet' para usar el renderizado condicional de App.jsx
+// Importación de Sidebar con la extensión .jsx corregida.
+import Sidebar from "../components/Sidebar.jsx"; 
 
-export default function Layout() {
+// Ahora Layout acepta 'children' (el componente de la página actual, ej: Dashboard)
+export default function Layout({ children }) {
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(250);
 
@@ -29,7 +31,7 @@ export default function Layout() {
       {/* Sidebar */}
       <Sidebar />
 
-      {/* Contenido dinámico según la ruta */}
+      {/* Contenido dinámico pasado como children desde App.jsx */}
       <main style={{
         flex: 1,
         overflowY: "auto",
@@ -39,7 +41,8 @@ export default function Layout() {
         boxSizing: "border-box",
         position: "relative"
       }}>
-        <Outlet /> {/* ← Aquí se renderizan Dashboard, RolesCargos, etc. */}
+        {/* Usamos 'children' en lugar de 'Outlet' */}
+        {children} 
       </main>
     </div>
   );
