@@ -254,7 +254,7 @@ export default function Dashboard() {
         <Card 
           title="Pedidos activos" 
           value={stats.pedidosActivos}
-          subtitle={`${stats.mesasOcupadas} mesas ocupadas`}
+          subtitle={${stats.mesasOcupadas} mesas ocupadas}
           icon={<ShoppingCart size={20} />}
         />
         
