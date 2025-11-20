@@ -3,10 +3,10 @@ import { useState, useEffect } from "react";
 import { 
   Home, Shield, DollarSign, Users, Package, 
   UtensilsCrossed, Receipt, ShoppingCart, Truck, 
-  BookOpen, Wallet, Menu, X 
+  BookOpen, Wallet, Menu, X, LogOut
 } from "lucide-react";
 
-export default function Sidebar() {
+export default function Sidebar({ onLogout, empleado }) {
   const location = useLocation();
   const [isMobile, setIsMobile] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -128,6 +128,34 @@ export default function Sidebar() {
           <span style={{ fontSize: "13px", color: "#6d4611", opacity: 0.9 }}>
             Sistema de gestión
           </span>
+          
+          {/* Información del usuario logeado */}
+          {empleado && (
+            <div style={{
+              marginTop: "15px",
+              padding: "10px",
+              background: "rgba(122, 59, 6, 0.08)",
+              borderRadius: "8px",
+              border: "1px solid rgba(122, 59, 6, 0.1)"
+            }}>
+              <p style={{ 
+                margin: "0 0 4px 0", 
+                fontSize: "13px", 
+                fontWeight: "600",
+                color: "#7a3b06" 
+              }}>
+                {empleado.nombre} {empleado.pat}
+              </p>
+              <p style={{ 
+                margin: 0, 
+                fontSize: "11px", 
+                color: "#6d4611",
+                opacity: 0.8 
+              }}>
+                {empleado.email}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Navigation con Scroll */}
@@ -228,6 +256,54 @@ export default function Sidebar() {
             })}
           </ul>
         </nav>
+
+        {/* Botón de Cerrar Sesión */}
+        <div style={{ 
+          marginTop: "15px",
+          flexShrink: 0
+        }}>
+          <button
+            onClick={onLogout}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+              width: "100%",
+              padding: "12px 16px",
+              backgroundColor: "rgba(122, 59, 6, 0.08)",
+              border: "1px solid rgba(122, 59, 6, 0.2)",
+              borderRadius: "10px",
+              color: "#7a3b06",
+              cursor: "pointer",
+              fontSize: "14px",
+              fontWeight: "500",
+              transition: "all 0.25s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.backgroundColor = "rgba(122, 59, 6, 0.15)";
+              e.target.style.transform = "translateY(-1px)";
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.backgroundColor = "rgba(122, 59, 6, 0.08)";
+              e.target.style.transform = "translateY(0)";
+            }}
+          >
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "30px",
+                height: "30px",
+                borderRadius: "8px",
+                background: "rgba(122, 59, 6, 0.12)",
+              }}
+            >
+              <LogOut size={16} />
+            </span>
+            <span>Cerrar Sesión</span>
+          </button>
+        </div>
 
         {/* Footer */}
         <div style={{ 

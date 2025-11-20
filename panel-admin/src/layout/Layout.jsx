@@ -1,9 +1,9 @@
 // src/layout/Layout.jsx
 import { useState, useEffect } from "react";
-import { Outlet } from "react-router-dom"; // ← Import Outlet
+import { Outlet } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
 
-export default function Layout() {
+export default function Layout({ onLogout, empleado }) {
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(250);
 
@@ -27,7 +27,7 @@ export default function Layout() {
       overflow: "hidden"
     }}>
       {/* Sidebar */}
-      <Sidebar />
+      <Sidebar onLogout={onLogout} empleado={empleado} />
 
       {/* Contenido dinámico según la ruta */}
       <main style={{
