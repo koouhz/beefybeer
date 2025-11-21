@@ -8,6 +8,12 @@ import Sueldos from "./pages/Sueldos";
 import Personal from "./pages/Personal";
 import Inventario from "./pages/Inventario";
 import Login from "./pages/Login";
+import Mesas from "./pages/Mesas";
+import Pedidos from "./pages/Pedidos";
+import Ventas from "./pages/Ventas";
+import Proveedores from "./pages/Proveedores";
+import Recetas from "./pages/Recetas";
+import Gastos from "./pages/Gastos";
 
 function App() {
   const [empleado, setEmpleado] = useState(null);
@@ -58,6 +64,12 @@ function App() {
             <Route path="sueldos" element={<Sueldos />} />
             <Route path="personal" element={<Personal />} />
             <Route path="inventario" element={<Inventario />} />
+            <Route path="mesas" element={<Mesas />} />
+            <Route path="pedidos" element={<Pedidos />} />
+            <Route path="ventas" element={<Ventas />} />
+            <Route path="proveedores" element={<Proveedores />} />
+            <Route path="recetas" element={<Recetas />} />
+            <Route path="gastos" element={<Gastos />} />
           </Route>
         </Routes>
       )}
