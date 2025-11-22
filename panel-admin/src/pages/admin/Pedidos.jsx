@@ -1,6 +1,6 @@
 // src/pages/Pedidos.jsx
 import { useState, useEffect } from "react";
-import { supabase } from "../bd/supabaseClient";
+import { supabase } from "../../bd/supabaseClient";
 import { Edit, Trash2, Plus, ShoppingCart } from "lucide-react";
 
 export default function Pedidos() {

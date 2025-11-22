@@ -6,7 +6,7 @@ import {
   BookOpen, Wallet, Menu, X, LogOut
 } from "lucide-react";
 
-export default function Sidebar({ onLogout, empleado }) {
+export default function Sidebar({ onLogout, empleado, userType = 'admin' }) {
   const location = useLocation();
   const [isMobile, setIsMobile] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -20,19 +20,30 @@ export default function Sidebar({ onLogout, empleado }) {
     return () => window.removeEventListener("resize", checkScreenSize);
   }, []);
 
-  const items = [
-    { label: "Panel principal", icon: Home, path: "/" },
-    { label: "Roles y cargos", icon: Shield, path: "/roles-cargos" },
-    { label: "Sueldos", icon: DollarSign, path: "/sueldos" },
-    { label: "Personal", icon: Users, path: "/personal" },
-    { label: "Inventario", icon: Package, path: "/inventario" },
-    { label: "Mesas", icon: UtensilsCrossed, path: "/mesas" },
-    { label: "Pedidos", icon: Receipt, path: "/pedidos" },
-    { label: "Ventas", icon: ShoppingCart, path: "/ventas" },
-    { label: "Proveedores", icon: Truck, path: "/proveedores" },
-    { label: "Recetas", icon: BookOpen, path: "/recetas" },
-    { label: "Gastos", icon: Wallet, path: "/gastos" },
+  // Menú para Admin
+  const menuItemsAdmin = [
+    { label: "Panel principal", icon: Home, path: "/admin" },
+    { label: "Roles y cargos", icon: Shield, path: "/admin/roles-cargos" },
+    { label: "Sueldos", icon: DollarSign, path: "/admin/sueldos" },
+    { label: "Personal", icon: Users, path: "/admin/personal" },
+    { label: "Inventario", icon: Package, path: "/admin/inventario" },
+    { label: "Mesas", icon: UtensilsCrossed, path: "/admin/mesas" },
+    { label: "Pedidos", icon: Receipt, path: "/admin/pedidos" },
+    { label: "Ventas", icon: ShoppingCart, path: "/admin/ventas" },
+    { label: "Proveedores", icon: Truck, path: "/admin/proveedores" },
+    { label: "Recetas", icon: BookOpen, path: "/admin/recetas" },
+    { label: "Gastos", icon: Wallet, path: "/admin/gastos" },
   ];
+
+  // Menú para Mesero
+  const menuItemsMesero = [
+    { label: "Panel Mesero", icon: Home, path: "/mesero" },
+    { label: "Mesas", icon: UtensilsCrossed, path: "/mesero/mesas" },
+    { label: "Pedidos", icon: Receipt, path: "/mesero/pedidos" },
+  ];
+
+  const items = userType === 'admin' ? menuItemsAdmin : menuItemsMesero;
+  const sistemaText = userType === 'admin' ? 'Sistema de gestión' : 'Sistema de meseros';
 
   return (
     <>
@@ -126,7 +137,7 @@ export default function Sidebar({ onLogout, empleado }) {
             Beef & Beer
           </h2>
           <span style={{ fontSize: "13px", color: "#6d4611", opacity: 0.9 }}>
-            Sistema de gestión
+            {sistemaText}
           </span>
           
           {/* Información del usuario logeado */}
@@ -152,8 +163,18 @@ export default function Sidebar({ onLogout, empleado }) {
                 color: "#6d4611",
                 opacity: 0.8 
               }}>
-                {empleado.email}
+                {userType === 'admin' ? 'Administrador' : 'Mesero'}
               </p>
+              {empleado.email && (
+                <p style={{ 
+                  margin: "4px 0 0 0", 
+                  fontSize: "10px", 
+                  color: "#6d4611",
+                  opacity: 0.7 
+                }}>
+                  {empleado.email}
+                </p>
+              )}
             </div>
           )}
         </div>

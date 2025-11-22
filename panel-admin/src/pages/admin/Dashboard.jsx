@@ -1,11 +1,11 @@
 // src/pages/Dashboard.jsx
 import { useState, useEffect } from "react";
-import Card from "../components/Card";
+import Card from "../../components/Card";
 import { 
   TrendingUp, Users, ShoppingCart, Package, Utensils, AlertTriangle, 
   Plus, Box, User 
 } from "lucide-react";
-import { supabase } from "../bd/supabaseClient";
+import { supabase } from "../../bd/supabaseClient";
 
 export default function Dashboard() {
   const [stats, setStats] = useState({

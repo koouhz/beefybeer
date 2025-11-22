@@ -1,6 +1,6 @@
 // src/pages/Inventario.jsx
 import { useState, useEffect } from "react";
-import { supabase } from "../bd/supabaseClient";
+import { supabase } from "../../bd/supabaseClient";
 import { Edit, Trash2, Plus, Package } from "lucide-react";
 
 export default function Inventario() {

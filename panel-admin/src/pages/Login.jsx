@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "../bd/supabaseClient";
 
 export default function Login({ onLogin }) {
@@ -10,10 +10,32 @@ export default function Login({ onLogin }) {
     pat: "",
     mat: "",
     fecha_nac: "",
-    ci: ""
+    ci: "",
+    id_rol: "2" // ← Valor por defecto: 2 = Mesero
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [roles, setRoles] = useState([]);
+
+  // Cargar roles cuando se muestre el formulario de registro
+  useEffect(() => {
+    const cargarRoles = async () => {
+      if (!isLogin) {
+        try {
+          const { data, error } = await supabase
+            .from('roles')
+            .select('id_rol, nombre')
+            .order('id_rol');
+          
+          if (error) throw error;
+          setRoles(data || []);
+        } catch (error) {
+          console.error('Error cargando roles:', error);
+        }
+      }
+    };
+    cargarRoles();
+  }, [isLogin]);
 
   const handleChange = (e) => {
     setFormData({
@@ -28,23 +50,75 @@ export default function Login({ onLogin }) {
     setError("");
 
     try {
+      // Primero verificar si el usuario existe
+      const { data: usuarioExistente, error: errorEmail } = await supabase
+        .from('empleados')
+        .select('email')
+        .eq('email', formData.email)
+        .single();
+
+      // Si no existe el email
+      if (errorEmail && errorEmail.code === 'PGRST116') {
+        setError("No existe una cuenta con este email.");
+        return;
+      }
+
+      // Si hay otro error de email
+      if (errorEmail && errorEmail.code !== 'PGRST116') {
+        throw errorEmail;
+      }
+
+      // Ahora verificar email y contraseña juntos
       const { data: empleado, error } = await supabase
         .from('empleados')
-        .select('*')
+        .select(`
+          *,
+          roles (nombre)
+        `)
         .eq('email', formData.email)
         .eq('password', formData.password)
         .single();
 
-      if (error) throw error;
+      // Si las credenciales son incorrectas
+      if (error && error.code === 'PGRST116') {
+        setError("Contraseña incorrecta.");
+        return;
+      }
+
+      // Si hay otro error
+      if (error) {
+        throw error;
+      }
       
       if (empleado) {
-        localStorage.setItem('empleado', JSON.stringify(empleado));
-        onLogin(empleado);
-      } else {
-        setError("Credenciales incorrectas");
+        // Determinar tipo de usuario basado en id_rol
+        let tipo_usuario = 'mesero';
+        
+        if (empleado.id_rol === 1) {
+          tipo_usuario = 'admin';
+        } else if (empleado.id_rol === 2) {
+          tipo_usuario = 'mesero';
+        }
+
+        const empleadoConTipo = {
+          ...empleado,
+          tipo_usuario: tipo_usuario,
+          rol_nombre: empleado.roles?.nombre || 'Sin rol'
+        };
+        
+        console.log("🔑 Login exitoso:", empleadoConTipo);
+        localStorage.setItem('empleado', JSON.stringify(empleadoConTipo));
+        onLogin(empleadoConTipo);
       }
     } catch (error) {
-      setError("Error al iniciar sesión: " + error.message);
+      console.error('Error login:', error);
+      
+      // Mensajes de error específicos
+      if (error.message?.includes('network') || error.message?.includes('fetch')) {
+        setError("Error de conexión. Verifica tu internet.");
+      } else {
+        setError("Error inesperado. Intenta nuevamente.");
+      }
     } finally {
       setLoading(false);
     }
@@ -56,6 +130,30 @@ export default function Login({ onLogin }) {
     setError("");
 
     try {
+      // Verificar si ya existe el email
+      const { data: existeEmail } = await supabase
+        .from('empleados')
+        .select('email')
+        .eq('email', formData.email)
+        .single();
+
+      if (existeEmail) {
+        setError("Ya existe un usuario con este email");
+        return;
+      }
+
+      // Verificar si ya existe el CI
+      const { data: existeCI } = await supabase
+        .from('empleados')
+        .select('ci')
+        .eq('ci', formData.ci)
+        .single();
+
+      if (existeCI) {
+        setError("Ya existe un usuario con este CI");
+        return;
+      }
+
       const { data, error } = await supabase
         .from('empleados')
         .insert([{
@@ -65,17 +163,39 @@ export default function Login({ onLogin }) {
           mat: formData.mat,
           fecha_nac: formData.fecha_nac,
           email: formData.email,
-          password: formData.password
+          password: formData.password,
+          id_rol: parseInt(formData.id_rol) // ← Usar id_rol en lugar de tipo_usuario
         }])
-        .select();
+        .select(`
+          *,
+          roles (nombre)
+        `);
 
       if (error) throw error;
       
       if (data && data.length > 0) {
-        localStorage.setItem('empleado', JSON.stringify(data[0]));
-        onLogin(data[0]);
+        const nuevoEmpleado = data[0];
+        
+        // Determinar tipo de usuario basado en id_rol
+        let tipo_usuario = 'mesero';
+        if (nuevoEmpleado.id_rol === 1) {
+          tipo_usuario = 'admin';
+        } else if (nuevoEmpleado.id_rol === 2) {
+          tipo_usuario = 'mesero';
+        }
+
+        const empleadoCompleto = {
+          ...nuevoEmpleado,
+          tipo_usuario: tipo_usuario,
+          rol_nombre: nuevoEmpleado.roles?.nombre || 'Sin rol'
+        };
+        
+        console.log("✅ Registro exitoso:", empleadoCompleto);
+        localStorage.setItem('empleado', JSON.stringify(empleadoCompleto));
+        onLogin(empleadoCompleto);
       }
     } catch (error) {
+      console.error('Error registro:', error);
       setError("Error al registrar: " + error.message);
     } finally {
       setLoading(false);
@@ -143,7 +263,7 @@ export default function Login({ onLogin }) {
                   fontSize: "14px",
                   fontWeight: "500"
                 }}>
-                  Cédula de Identidad
+                  Cédula de Identidad *
                 </label>
                 <input
                   type="text"
@@ -172,7 +292,7 @@ export default function Login({ onLogin }) {
                   fontSize: "14px",
                   fontWeight: "500"
                 }}>
-                  Nombre
+                  Nombre *
                 </label>
                 <input
                   type="text"
@@ -201,7 +321,7 @@ export default function Login({ onLogin }) {
                   fontSize: "14px",
                   fontWeight: "500"
                 }}>
-                  Apellido Paterno
+                  Apellido Paterno *
                 </label>
                 <input
                   type="text"
@@ -258,7 +378,7 @@ export default function Login({ onLogin }) {
                   fontSize: "14px",
                   fontWeight: "500"
                 }}>
-                  Fecha de Nacimiento
+                  Fecha de Nacimiento *
                 </label>
                 <input
                   type="date"
@@ -277,6 +397,44 @@ export default function Login({ onLogin }) {
                   }}
                 />
               </div>
+
+              {/* Selector de Rol */}
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{
+                  display: "block",
+                  marginBottom: "6px",
+                  color: "#7a3b06",
+                  fontSize: "14px",
+                  fontWeight: "500"
+                }}>
+                  Rol *
+                </label>
+                <select
+                  name="id_rol"
+                  value={formData.id_rol}
+                  onChange={handleChange}
+                  required
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    border: "1px solid #e9d8b5",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    color: "#7a3b06",
+                    backgroundColor: "#fefaf5"
+                  }}
+                >
+                  <option value="">Seleccionar rol</option>
+                  {roles.map(rol => (
+                    <option key={rol.id_rol} value={rol.id_rol}>
+                      {rol.nombre}
+                    </option>
+                  ))}
+                </select>
+                <small style={{ color: "#6d4611", fontSize: "12px", display: "block", marginTop: "4px" }}>
+                  * Los administradores tienen acceso completo al sistema
+                </small>
+              </div>
             </>
           )}
 
@@ -288,7 +446,7 @@ export default function Login({ onLogin }) {
               fontSize: "14px",
               fontWeight: "500"
             }}>
-              Email
+              Email *
             </label>
             <input
               type="email"
@@ -317,7 +475,7 @@ export default function Login({ onLogin }) {
               fontSize: "14px",
               fontWeight: "500"
             }}>
-              Contraseña
+              Contraseña *
             </label>
             <input
               type="password"
@@ -361,7 +519,20 @@ export default function Login({ onLogin }) {
 
         <div style={{ textAlign: "center" }}>
           <button
-            onClick={() => setIsLogin(!isLogin)}
+            onClick={() => {
+              setIsLogin(!isLogin);
+              setFormData({
+                email: "",
+                password: "",
+                nombre: "",
+                pat: "",
+                mat: "",
+                fecha_nac: "",
+                ci: "",
+                id_rol: "2"
+              });
+              setError("");
+            }}
             style={{
               background: "none",
               border: "none",

@@ -1,17 +1,18 @@
-// src/pages/Mesas.jsx
+// src/pages/Recetas.jsx
 import { useState, useEffect } from "react";
-import { supabase } from "../bd/supabaseClient";
-import { Edit, Trash2, Plus, Table } from "lucide-react";
+import { supabase } from "../../bd/supabaseClient";
+import { Edit, Trash2, Plus, Book } from "lucide-react";
 
-export default function Mesas() {
-  const [mesas, setMesas] = useState([]);
+export default function Recetas() {
+  const [recetas, setRecetas] = useState([]);
+  const [ingredientes, setIngredientes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
-    nromesa: '',
-    salon: '',
-    capacidad: '',
-    estado: 'libre'
+    nombre: '',
+    detalles: '',
+    cantidad: '',
+    id_ingrediente: ''
   });
 
   useEffect(() => {
@@ -20,11 +21,19 @@ export default function Mesas() {
 
   const cargarDatos = async () => {
     try {
-      const { data, error } = await supabase.from('mesas').select('*');
-      if (error) throw error;
-      setMesas(data || []);
+      const [recetasRes, ingredientesRes] = await Promise.all([
+        supabase.from('recetas').select('*'),
+        supabase.from('ingredientes').select('*')
+      ]);
+      
+      if (recetasRes.error) throw recetasRes.error;
+      if (ingredientesRes.error) throw ingredientesRes.error;
+      
+      setRecetas(recetasRes.data || []);
+      setIngredientes(ingredientesRes.data || []);
     } catch (error) {
       console.error('Error:', error);
+      alert('Error al cargar datos: ' + error.message);
     }
     setLoading(false);
   };
@@ -33,42 +42,38 @@ export default function Mesas() {
     e.preventDefault();
     try {
       const { error } = await supabase
-        .from('mesas')
+        .from('recetas')
         .insert([{
           ...form,
-          nromesa: parseInt(form.nromesa),
-          salon: parseInt(form.salon),
-          capacidad: parseInt(form.capacidad)
+          cantidad: parseInt(form.cantidad)
         }]);
       
       if (error) throw error;
-      setForm({ nromesa: '', salon: '', capacidad: '', estado: 'libre' });
+      setForm({ nombre: '', detalles: '', cantidad: '', id_ingrediente: '' });
       setShowForm(false);
       cargarDatos();
     } catch (error) {
       console.error('Error:', error);
+      alert('Error al crear receta: ' + error.message);
     }
   };
 
-  const eliminarMesa = async (nromesa) => {
-    if (window.confirm('¿Eliminar mesa?')) {
-      await supabase.from('mesas').delete().eq('nromesa', nromesa);
-      cargarDatos();
+  const eliminarReceta = async (id) => {
+    if (window.confirm('¿Eliminar receta?')) {
+      try {
+        const { error } = await supabase.from('recetas').delete().eq('id_receta', id);
+        if (error) throw error;
+        cargarDatos();
+      } catch (error) {
+        console.error('Error:', error);
+        alert('Error al eliminar receta: ' + error.message);
+      }
     }
   };
 
-  const actualizarMesa = async (nromesa, updates) => {
-    try {
-      const { error } = await supabase
-        .from('mesas')
-        .update(updates)
-        .eq('nromesa', nromesa);
-      
-      if (error) throw error;
-      cargarDatos();
-    } catch (error) {
-      console.error('Error actualizando:', error);
-    }
+  const getIngredienteNombre = (id_ingrediente) => {
+    const ingrediente = ingredientes.find(i => i.id_ingrediente === id_ingrediente);
+    return ingrediente ? ingrediente.nombre : 'N/A';
   };
 
   if (loading) return <div style={{ padding: "20px" }}>Cargando...</div>;
@@ -76,7 +81,7 @@ export default function Mesas() {
   return (
     <div style={{ padding: "20px" }}>
       <h1 style={{ fontSize: "28px", color: "#7a3b06", marginBottom: "30px" }}>
-        Gestión de Mesas
+        Gestión de Recetas
       </h1>
 
       <button
@@ -95,7 +100,7 @@ export default function Mesas() {
         }}
       >
         <Plus size={16} />
-        Nueva Mesa
+        Nueva Receta
       </button>
 
       {showForm && (
@@ -106,84 +111,86 @@ export default function Mesas() {
           border: "1px solid #e9d8b5",
           marginBottom: "30px"
         }}>
-          <h3 style={{ color: "#7a3b06", marginBottom: "15px" }}>Nueva Mesa</h3>
+          <h3 style={{ color: "#7a3b06", marginBottom: "15px" }}>Nueva Receta</h3>
           <form onSubmit={handleSubmit}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "15px", marginBottom: "15px" }}>
-              <div>
-                <label style={{ display: "block", marginBottom: "5px", color: "#6d4611" }}>
-                  Número de Mesa
-                </label>
-                <input
-                  type="number"
-                  value={form.nromesa}
-                  onChange={(e) => setForm({...form, nromesa: e.target.value})}
-                  required
-                  min="1"
-                  style={{
-                    width: "100%",
-                    padding: "10px",
-                    border: "1px solid #e9d8b5",
-                    borderRadius: "6px"
-                  }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", marginBottom: "5px", color: "#6d4611" }}>
-                  Salón
-                </label>
-                <input
-                  type="number"
-                  value={form.salon}
-                  onChange={(e) => setForm({...form, salon: e.target.value})}
-                  required
-                  min="1"
-                  max="4"
-                  style={{
-                    width: "100%",
-                    padding: "10px",
-                    border: "1px solid #e9d8b5",
-                    borderRadius: "6px"
-                  }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", marginBottom: "5px", color: "#6d4611" }}>
-                  Capacidad
-                </label>
-                <input
-                  type="number"
-                  value={form.capacidad}
-                  onChange={(e) => setForm({...form, capacidad: e.target.value})}
-                  required
-                  min="1"
-                  style={{
-                    width: "100%",
-                    padding: "10px",
-                    border: "1px solid #e9d8b5",
-                    borderRadius: "6px"
-                  }}
-                />
-              </div>
-            </div>
-            
             <div style={{ marginBottom: "15px" }}>
               <label style={{ display: "block", marginBottom: "5px", color: "#6d4611" }}>
-                Estado
+                Nombre de la Receta
               </label>
-              <select
-                value={form.estado}
-                onChange={(e) => setForm({...form, estado: e.target.value})}
+              <input
+                type="text"
+                value={form.nombre}
+                onChange={(e) => setForm({...form, nombre: e.target.value})}
+                required
                 style={{
                   width: "100%",
                   padding: "10px",
                   border: "1px solid #e9d8b5",
                   borderRadius: "6px"
                 }}
-              >
-                <option value="libre">Libre</option>
-                <option value="ocupada">Ocupada</option>
-                <option value="reservada">Reservada</option>
-              </select>
+              />
+            </div>
+            
+            <div style={{ marginBottom: "15px" }}>
+              <label style={{ display: "block", marginBottom: "5px", color: "#6d4611" }}>
+                Detalles
+              </label>
+              <textarea
+                value={form.detalles}
+                onChange={(e) => setForm({...form, detalles: e.target.value})}
+                style={{
+                  width: "100%",
+                  padding: "10px",
+                  border: "1px solid #e9d8b5",
+                  borderRadius: "6px",
+                  minHeight: "60px"
+                }}
+              />
+            </div>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "15px", marginBottom: "15px" }}>
+              <div>
+                <label style={{ display: "block", marginBottom: "5px", color: "#6d4611" }}>
+                  Cantidad
+                </label>
+                <input
+                  type="number"
+                  value={form.cantidad}
+                  onChange={(e) => setForm({...form, cantidad: e.target.value})}
+                  required
+                  min="1"
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    border: "1px solid #e9d8b5",
+                    borderRadius: "6px"
+                  }}
+                />
+              </div>
+              
+              <div>
+                <label style={{ display: "block", marginBottom: "5px", color: "#6d4611" }}>
+                  Ingrediente Principal
+                </label>
+                <select
+                  value={form.id_ingrediente}
+                  onChange={(e) => setForm({...form, id_ingrediente: e.target.value})}
+                  required
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    border: "1px solid #e9d8b5",
+                    borderRadius: "6px"
+                  }}
+                >
+                  <option value="">Seleccionar ingrediente</option>
+                  {ingredientes.map(ingrediente => (
+                    <option key={ingrediente.id_ingrediente} value={ingrediente.id_ingrediente}>
+                      {ingrediente.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             
             <div style={{ display: "flex", gap: "10px" }}>
@@ -198,13 +205,13 @@ export default function Mesas() {
                   cursor: "pointer"
                 }}
               >
-                Guardar
+                Guardar Receta
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setShowForm(false);
-                  setForm({ nromesa: '', salon: '', capacidad: '', estado: 'libre' });
+                  setForm({ nombre: '', detalles: '', cantidad: '', id_ingrediente: '' });
                 }}
                 style={{
                   padding: "10px 20px",
@@ -223,49 +230,37 @@ export default function Mesas() {
       )}
 
       <div style={{ background: "white", borderRadius: "12px", border: "1px solid #e9d8b5", padding: "20px" }}>
-        <h2 style={{ color: "#7a3b06", marginBottom: "15px" }}>Mesas</h2>
+        <h2 style={{ color: "#7a3b06", marginBottom: "15px" }}>Recetas</h2>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ backgroundColor: "#f8f5ee" }}>
-              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Nro Mesa</th>
-              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Salón</th>
-              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Capacidad</th>
-              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Estado</th>
+              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>ID</th>
+              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Nombre</th>
+              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Detalles</th>
+              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Cantidad</th>
+              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Ingrediente</th>
               <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {mesas.map(mesa => (
-              <tr key={mesa.nromesa}>
-                <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>{mesa.nromesa}</td>
-                <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>{mesa.salon}</td>
-                <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>{mesa.capacidad}</td>
+            {recetas.map(receta => (
+              <tr key={receta.id_receta}>
+                <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>{receta.id_receta}</td>
+                <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>{receta.nombre}</td>
+                <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>{receta.detalles}</td>
+                <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>{receta.cantidad}</td>
                 <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>
-                  <select
-                    value={mesa.estado}
-                    onChange={(e) => actualizarMesa(mesa.nromesa, { estado: e.target.value })}
-                    style={{
-                      padding: "5px",
-                      border: "1px solid #e9d8b5",
-                      borderRadius: "4px",
-                      backgroundColor: mesa.estado === 'ocupada' ? '#fff5f5' : 
-                                     mesa.estado === 'reservada' ? '#f0f8ff' : '#f5fff5'
-                    }}
-                  >
-                    <option value="libre">Libre</option>
-                    <option value="ocupada">Ocupada</option>
-                    <option value="reservada">Reservada</option>
-                  </select>
+                  {getIngredienteNombre(receta.id_ingrediente)}
                 </td>
                 <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>
                   <div style={{ display: "flex", gap: "5px" }}>
                     <button 
                       onClick={() => {
                         setForm({
-                          nromesa: mesa.nromesa,
-                          salon: mesa.salon,
-                          capacidad: mesa.capacidad,
-                          estado: mesa.estado
+                          nombre: receta.nombre,
+                          detalles: receta.detalles,
+                          cantidad: receta.cantidad,
+                          id_ingrediente: receta.id_ingrediente
                         });
                         setShowForm(true);
                       }}
@@ -280,7 +275,7 @@ export default function Mesas() {
                       <Edit size={14} />
                     </button>
                     <button 
-                      onClick={() => eliminarMesa(mesa.nromesa)}
+                      onClick={() => eliminarReceta(receta.id_receta)}
                       style={{ 
                         padding: "5px 10px", 
                         backgroundColor: "#dc3545", 

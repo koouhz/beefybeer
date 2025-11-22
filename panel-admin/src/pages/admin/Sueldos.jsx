@@ -1,23 +1,15 @@
+// src/pages/Sueldos.jsx
 import { useState, useEffect } from "react";
-import { supabase } from "../bd/supabaseClient";
+import { supabase } from "../../bd/supabaseClient";
 import { Edit, Trash2, Plus } from "lucide-react";
 
-export default function Personal() {
-  const [empleados, setEmpleados] = useState([]);
-  const [roles, setRoles] = useState([]);
+export default function Sueldos() {
+  const [sueldos, setSueldos] = useState([]);
   const [cargos, setCargos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    ci: '',
-    nombre: '',
-    pat: '',
-    mat: '',
-    fecha_nac: '',
-    id_rol: '',
-    id_cargo: ''
-  });
-  const [editingCi, setEditingCi] = useState(null); // <-- para editar
+  const [form, setForm] = useState({ monto: '', descripcion: '', id_cargo: '' });
+  const [editingId, setEditingId] = useState(null); // ← para saber si estamos editando
 
   useEffect(() => {
     cargarDatos();
@@ -25,14 +17,12 @@ export default function Personal() {
 
   const cargarDatos = async () => {
     try {
-      const [empleadosRes, rolesRes, cargosRes] = await Promise.all([
-        supabase.from('empleados').select('*'),
-        supabase.from('roles').select('*'),
+      const [sueldosRes, cargosRes] = await Promise.all([
+        supabase.from('sueldos').select('*'),
         supabase.from('cargos').select('*')
       ]);
       
-      setEmpleados(empleadosRes.data || []);
-      setRoles(rolesRes.data || []);
+      setSueldos(sueldosRes.data || []);
       setCargos(cargosRes.data || []);
     } catch (error) {
       console.error('Error:', error);
@@ -43,31 +33,30 @@ export default function Personal() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      if (editingCi) {
-        // Actualizar empleado
+      if (editingId) {
+        // Editar sueldo
         const { error } = await supabase
-          .from('empleados')
-          .update(form)
-          .eq('ci', editingCi);
+          .from('sueldos')
+          .update({ 
+            ...form, 
+            monto: parseFloat(form.monto) 
+          })
+          .eq('id_sueldo', editingId);
         if (error) throw error;
       } else {
-        // Nuevo empleado
+        // Nuevo sueldo
         const { error } = await supabase
-          .from('empleados')
-          .insert([form]);
+          .from('sueldos')
+          .insert([{ 
+            ...form, 
+            monto: parseFloat(form.monto) 
+          }]);
         if (error) throw error;
       }
 
-      setForm({
-        ci: '',
-        nombre: '',
-        pat: '',
-        mat: '',
-        fecha_nac: '',
-        id_rol: '',
-        id_cargo: ''
-      });
-      setEditingCi(null);
+      // Reset
+      setForm({ monto: '', descripcion: '', id_cargo: '' });
+      setEditingId(null);
       setShowForm(false);
       cargarDatos();
     } catch (error) {
@@ -75,23 +64,19 @@ export default function Personal() {
     }
   };
 
-  const editarEmpleado = (empleado) => {
+  const editarSueldo = (sueldo) => {
     setForm({
-      ci: empleado.ci,
-      nombre: empleado.nombre,
-      pat: empleado.pat,
-      mat: empleado.mat,
-      fecha_nac: empleado.fecha_nac,
-      id_rol: empleado.id_rol,
-      id_cargo: empleado.id_cargo
+      monto: sueldo.monto,
+      descripcion: sueldo.descripcion,
+      id_cargo: sueldo.id_cargo
     });
-    setEditingCi(empleado.ci);
+    setEditingId(sueldo.id_sueldo);
     setShowForm(true);
   };
 
-  const eliminarEmpleado = async (ci) => {
-    if (window.confirm('¿Eliminar empleado?')) {
-      await supabase.from('empleados').delete().eq('ci', ci);
+  const eliminarSueldo = async (id) => {
+    if (window.confirm('¿Eliminar sueldo?')) {
+      await supabase.from('sueldos').delete().eq('id_sueldo', id);
       cargarDatos();
     }
   };
@@ -101,22 +86,14 @@ export default function Personal() {
   return (
     <div style={{ padding: "20px" }}>
       <h1 style={{ fontSize: "28px", color: "#7a3b06", marginBottom: "30px" }}>
-        Gestión de Personal
+        Gestión de Sueldos
       </h1>
 
       <button
         onClick={() => {
           setShowForm(true);
-          setEditingCi(null);
-          setForm({
-            ci: '',
-            nombre: '',
-            pat: '',
-            mat: '',
-            fecha_nac: '',
-            id_rol: '',
-            id_cargo: ''
-          });
+          setEditingId(null); // Nuevo sueldo
+          setForm({ monto: '', descripcion: '', id_cargo: '' });
         }}
         style={{
           padding: "12px 20px",
@@ -132,7 +109,7 @@ export default function Personal() {
         }}
       >
         <Plus size={16} />
-        Nuevo Empleado
+        Nuevo Sueldo
       </button>
 
       {showForm && (
@@ -144,11 +121,69 @@ export default function Personal() {
           marginBottom: "30px"
         }}>
           <h3 style={{ color: "#7a3b06", marginBottom: "15px" }}>
-            {editingCi ? 'Editar Empleado' : 'Nuevo Empleado'}
+            {editingId ? 'Editar Sueldo' : 'Nuevo Sueldo'}
           </h3>
           <form onSubmit={handleSubmit}>
-            {/* Aquí van los inputs como antes, no los repito por brevedad */}
-            {/* ... */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "15px", marginBottom: "15px" }}>
+              <div>
+                <label style={{ display: "block", marginBottom: "5px", color: "#6d4611" }}>
+                  Monto (Bs)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={form.monto}
+                  onChange={(e) => setForm({...form, monto: e.target.value})}
+                  required
+                  min="0"
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    border: "1px solid #e9d8b5",
+                    borderRadius: "6px"
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", marginBottom: "5px", color: "#6d4611" }}>
+                  Cargo
+                </label>
+                <select
+                  value={form.id_cargo}
+                  onChange={(e) => setForm({...form, id_cargo: e.target.value})}
+                  required
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    border: "1px solid #e9d8b5",
+                    borderRadius: "6px"
+                  }}
+                >
+                  <option value="">Seleccionar cargo</option>
+                  {cargos.map(cargo => (
+                    <option key={cargo.id_cargo} value={cargo.id_cargo}>
+                      {cargo.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div style={{ marginBottom: "15px" }}>
+              <label style={{ display: "block", marginBottom: "5px", color: "#6d4611" }}>
+                Descripción
+              </label>
+              <textarea
+                value={form.descripcion}
+                onChange={(e) => setForm({...form, descripcion: e.target.value})}
+                style={{
+                  width: "100%",
+                  padding: "10px",
+                  border: "1px solid #e9d8b5",
+                  borderRadius: "6px",
+                  minHeight: "60px"
+                }}
+              />
+            </div>
             <div style={{ display: "flex", gap: "10px" }}>
               <button
                 type="submit"
@@ -167,16 +202,8 @@ export default function Personal() {
                 type="button"
                 onClick={() => {
                   setShowForm(false);
-                  setEditingCi(null);
-                  setForm({
-                    ci: '',
-                    nombre: '',
-                    pat: '',
-                    mat: '',
-                    fecha_nac: '',
-                    id_rol: '',
-                    id_cargo: ''
-                  });
+                  setForm({ monto: '', descripcion: '', id_cargo: '' });
+                  setEditingId(null);
                 }}
                 style={{
                   padding: "10px 20px",
@@ -195,33 +222,31 @@ export default function Personal() {
       )}
 
       <div style={{ background: "white", borderRadius: "12px", border: "1px solid #e9d8b5", padding: "20px" }}>
-        <h2 style={{ color: "#7a3b06", marginBottom: "15px" }}>Personal</h2>
+        <h2 style={{ color: "#7a3b06", marginBottom: "15px" }}>Sueldos</h2>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ backgroundColor: "#f8f5ee" }}>
-              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>CI</th>
-              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Nombre</th>
-              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Apellido</th>
+              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>ID</th>
+              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Monto</th>
               <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Cargo</th>
-              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Rol</th>
+              <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Descripción</th>
               <th style={{ padding: "10px", border: "1px solid #e9d8b5" }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {empleados.map(empleado => (
-              <tr key={empleado.ci}>
-                <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>{empleado.ci}</td>
-                <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>{empleado.nombre}</td>
-                <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>{empleado.pat} {empleado.mat}</td>
+            {sueldos.map(sueldo => (
+              <tr key={sueldo.id_sueldo}>
+                <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>{sueldo.id_sueldo}</td>
                 <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>
-                  {cargos.find(c => c.id_cargo === empleado.id_cargo)?.nombre || 'N/A'}
+                  {new Intl.NumberFormat('es-BO', { style: 'currency', currency: 'BOB' }).format(sueldo.monto)}
                 </td>
                 <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>
-                  {roles.find(r => r.id_rol === empleado.id_rol)?.nombre || 'N/A'}
+                  {cargos.find(c => c.id_cargo === sueldo.id_cargo)?.nombre || 'N/A'}
                 </td>
+                <td style={{ padding: "10px", border: "1px solid #e9d8b5" }}>{sueldo.descripcion}</td>
                 <td style={{ padding: "10px", border: "1px solid #e9d8b5", display: "flex", gap: "5px" }}>
                   <button 
-                    onClick={() => editarEmpleado(empleado)}
+                    onClick={() => editarSueldo(sueldo)}
                     style={{ 
                       padding: "5px 10px", 
                       backgroundColor: "#ffc107", 
@@ -236,7 +261,7 @@ export default function Personal() {
                     <Edit size={14} />
                   </button>
                   <button 
-                    onClick={() => eliminarEmpleado(empleado.ci)}
+                    onClick={() => eliminarSueldo(sueldo.id_sueldo)}
                     style={{ 
                       padding: "5px 10px", 
                       backgroundColor: "#dc3545", 

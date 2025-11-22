@@ -1,9 +1,9 @@
-// src/layout/Layout.jsx
+// src/layout/AdminLayout.jsx
 import { useState, useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
 
-export default function Layout({ onLogout, empleado }) {
+export default function AdminLayout({ onLogout, empleado }) {
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(250);
 
@@ -26,8 +26,8 @@ export default function Layout({ onLogout, empleado }) {
       backgroundColor: "#fdf6e3",
       overflow: "hidden"
     }}>
-      {/* Sidebar */}
-      <Sidebar onLogout={onLogout} empleado={empleado} />
+      {/* Sidebar para Admin */}
+      <Sidebar onLogout={onLogout} empleado={empleado} userType="admin" />
 
       {/* Contenido dinámico según la ruta */}
       <main style={{
@@ -39,7 +39,7 @@ export default function Layout({ onLogout, empleado }) {
         boxSizing: "border-box",
         position: "relative"
       }}>
-        <Outlet /> {/* ← Aquí se renderizan Dashboard, RolesCargos, etc. */}
+        <Outlet />
       </main>
     </div>
   );
