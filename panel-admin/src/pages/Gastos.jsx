@@ -13,19 +13,25 @@ import {
   RefreshCw,
   AlertTriangle,
   CheckCircle,
-  X
+  X,
+  Building,
+  Utensils,
+  Truck,
+  Users
 } from "lucide-react";
 
 export default function Gastos() {
   const [egresos, setEgresos] = useState([]);
   const [sueldos, setSueldos] = useState([]);
+  const [cargos, setCargos] = useState([]);
+  const [empleados, setEmpleados] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterSueldo, setFilterSueldo] = useState("");
+  const [filterCategoria, setFilterCategoria] = useState("");
   const [filterMonto, setFilterMonto] = useState("");
-  const [sortField, setSortField] = useState("id_egreso");
+  const [sortField, setSortField] = useState("fecha");
   const [sortDirection, setSortDirection] = useState("desc");
   const [formErrors, setFormErrors] = useState({});
 
@@ -35,6 +41,15 @@ export default function Gastos() {
     id_sueldo: ''
   });
 
+  // Categorías basadas en sueldos (usando cargos como categorías)
+  const categoriasGastos = [
+    { id: 'sueldos', nombre: 'Sueldos y Salarios', icon: Users },
+    { id: 'operativos', nombre: 'Gastos Operativos', icon: Building },
+    { id: 'insumos', nombre: 'Insumos', icon: Utensils },
+    { id: 'servicios', nombre: 'Servicios', icon: Truck },
+    { id: 'otros', nombre: 'Otros Gastos', icon: DollarSign }
+  ];
+
   useEffect(() => {
     cargarDatos();
   }, []);
@@ -42,7 +57,9 @@ export default function Gastos() {
   const cargarDatos = async () => {
     try {
       setLoading(true);
-      const [egresosRes, sueldosRes] = await Promise.all([
+      
+      // Cargar egresos con información relacionada
+      const [egresosRes, sueldosRes, cargosRes, empleadosRes] = await Promise.all([
         supabase
           .from('egresos')
           .select(`
@@ -50,26 +67,45 @@ export default function Gastos() {
             sueldos (
               monto,
               descripcion,
-              cargos (nombre)
+              cargos (
+                nombre,
+                descripcion
+              )
             )
           `)
           .order('id_egreso', { ascending: false }),
-        supabase.from('sueldos').select(`
-          *,
-          cargos (nombre)
-        `)
+        supabase
+          .from('sueldos')
+          .select(`
+            *,
+            cargos (
+              nombre,
+              descripcion
+            )
+          `),
+        supabase
+          .from('cargos')
+          .select('*'),
+        supabase
+          .from('empleados')
+          .select('ci, nombre, pat, mat')
       ]);
       
       if (egresosRes.error) throw egresosRes.error;
       if (sueldosRes.error) throw sueldosRes.error;
+      if (cargosRes.error) throw cargosRes.error;
+      if (empleadosRes.error) throw empleadosRes.error;
       
       setEgresos(egresosRes.data || []);
       setSueldos(sueldosRes.data || []);
+      setCargos(cargosRes.data || []);
+      setEmpleados(empleadosRes.data || []);
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error cargando datos:', error);
       mostrarNotificacion('Error al cargar datos: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const validarForm = () => {
@@ -127,7 +163,7 @@ export default function Gastos() {
       resetForm();
       cargarDatos();
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error guardando gasto:', error);
       mostrarNotificacion('Error al guardar gasto: ' + error.message, 'error');
     }
   };
@@ -148,7 +184,7 @@ export default function Gastos() {
       mostrarNotificacion('Gasto eliminado correctamente', 'success');
       cargarDatos();
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error eliminando gasto:', error);
       mostrarNotificacion('Error al eliminar gasto: ' + error.message, 'error');
     }
   };
@@ -165,22 +201,20 @@ export default function Gastos() {
   };
 
   const resetForm = () => {
-    setForm({ detalle: '', monto: '', id_sueldo: '' });
+    setForm({ 
+      detalle: '', 
+      monto: '', 
+      id_sueldo: ''
+    });
     setEditingId(null);
     setShowForm(false);
     setFormErrors({});
   };
 
   const mostrarNotificacion = (mensaje, tipo = 'info') => {
-    // Puedes implementar un sistema de notificaciones más robusto aquí
-    const colores = {
-      success: '#28a745',
-      error: '#dc3545',
-      warning: '#ffc107',
-      info: '#17a2b8'
-    };
-    
-    alert(mensaje); // Temporal - implementa un toast system
+    // Implementación temporal
+    console.log(`${tipo}: ${mensaje}`);
+    alert(mensaje);
   };
 
   // Filtros y búsqueda
@@ -188,15 +222,18 @@ export default function Gastos() {
     const coincideBusqueda = egreso.detalle?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            egreso.id_egreso?.toString().includes(searchTerm);
     
-    const coincideSueldo = !filterSueldo || egreso.id_sueldo?.toString() === filterSueldo;
+    const coincideCategoria = !filterCategoria || 
+      (filterCategoria === 'sueldos' && egreso.id_sueldo) ||
+      (filterCategoria === 'operativos' && !egreso.id_sueldo);
     
     const coincideMonto = !filterMonto || (
       filterMonto === "menor100" && egreso.monto < 100 ||
       filterMonto === "100-500" && egreso.monto >= 100 && egreso.monto <= 500 ||
-      filterMonto === "mayor500" && egreso.monto > 500
+      filterMonto === "500-1000" && egreso.monto > 500 && egreso.monto <= 1000 ||
+      filterMonto === "mayor1000" && egreso.monto > 1000
     );
     
-    return coincideBusqueda && coincideSueldo && coincideMonto;
+    return coincideBusqueda && coincideCategoria && coincideMonto;
   });
 
   const gastosOrdenados = [...gastosFiltrados].sort((a, b) => {
@@ -206,6 +243,9 @@ export default function Gastos() {
     if (sortField === 'monto') {
       aVal = parseFloat(aVal);
       bVal = parseFloat(bVal);
+    } else if (sortField === 'id_egreso') {
+      aVal = parseInt(aVal);
+      bVal = parseInt(bVal);
     }
     
     if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
@@ -222,41 +262,64 @@ export default function Gastos() {
     }
   };
 
-  const getSueldoCargo = (id_sueldo) => {
-    const sueldo = sueldos.find(s => s.id_sueldo === id_sueldo);
-    if (!sueldo) return 'N/A';
+  const getCategoriaGasto = (egreso) => {
+    if (egreso.id_sueldo) {
+      return { id: 'sueldos', nombre: 'Sueldos y Salarios', icon: Users };
+    }
     
-    const cargoNombre = sueldo.cargos?.nombre || 'Sin cargo';
-    return `Bs. ${sueldo.monto} - ${cargoNombre}`;
+    // Determinar categoría basada en el detalle
+    const detalle = egreso.detalle?.toLowerCase() || '';
+    if (detalle.includes('insumo') || detalle.includes('materia') || detalle.includes('producto')) {
+      return { id: 'insumos', nombre: 'Insumos', icon: Utensils };
+    } else if (detalle.includes('servicio') || detalle.includes('agua') || detalle.includes('luz') || detalle.includes('gas')) {
+      return { id: 'servicios', nombre: 'Servicios', icon: Truck };
+    } else if (detalle.includes('operativo') || detalle.includes('administrativo')) {
+      return { id: 'operativos', nombre: 'Gastos Operativos', icon: Building };
+    }
+    
+    return { id: 'otros', nombre: 'Otros Gastos', icon: DollarSign };
   };
 
   const getTotalGastos = () => {
     return egresos.reduce((sum, egreso) => sum + (egreso.monto || 0), 0);
   };
 
-  const getGastosHoy = () => {
-    const hoy = new Date().toISOString().split('T')[0];
-    return egresos.reduce((sum, egreso) => {
-      // Asumiendo que necesitarías un campo de fecha - sugeriría agregarlo a la tabla
-      const fechaEgreso = egreso.fecha_creacion || egreso.fecha;
-      if (!fechaEgreso) return sum;
-      
-      const fecha = new Date(fechaEgreso).toISOString().split('T')[0];
-      return fecha === hoy ? sum + (egreso.monto || 0) : sum;
-    }, 0);
+  const getGastosSueldos = () => {
+    return egresos.reduce((sum, egreso) => 
+      egreso.id_sueldo ? sum + (egreso.monto || 0) : sum, 0
+    );
+  };
+
+  const getGastosOperativos = () => {
+    return egresos.reduce((sum, egreso) => 
+      !egreso.id_sueldo ? sum + (egreso.monto || 0) : sum, 0
+    );
+  };
+
+  const getInfoSueldo = (idSueldo) => {
+    if (!idSueldo) return null;
+    const sueldo = sueldos.find(s => s.id_sueldo === idSueldo);
+    return sueldo;
   };
 
   const exportarDatos = () => {
-    const datos = gastosOrdenados.map(egreso => ({
-      ID: egreso.id_egreso,
-      Detalle: egreso.detalle,
-      Monto: egreso.monto,
-      'Relacionado con': egreso.id_sueldo ? getSueldoCargo(egreso.id_sueldo) : 'N/A',
-      Fecha: egreso.fecha_creacion || 'No especificada'
-    }));
+    const datos = gastosOrdenados.map(egreso => {
+      const categoria = getCategoriaGasto(egreso);
+      const sueldoInfo = getInfoSueldo(egreso.id_sueldo);
+      
+      return {
+        ID: egreso.id_egreso,
+        Detalle: egreso.detalle,
+        Monto: egreso.monto,
+        Categoría: categoria.nombre,
+        'Tipo Gasto': egreso.id_sueldo ? 'Sueldo' : 'Gasto Operativo',
+        'Cargo Relacionado': sueldoInfo?.cargos?.nombre || 'N/A',
+        'Descripción Sueldo': sueldoInfo?.descripcion || 'N/A'
+      };
+    });
     
-    const csv = convertirAJSON(datos);
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const csv = convertirACSV(datos);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -265,8 +328,10 @@ export default function Gastos() {
     URL.revokeObjectURL(url);
   };
 
-  const convertirAJSON = (datos) => {
-    const headers = Object.keys(datos[0] || {});
+  const convertirACSV = (datos) => {
+    if (datos.length === 0) return '';
+    
+    const headers = Object.keys(datos[0]);
     const csv = [
       headers.join(','),
       ...datos.map(row => headers.map(header => `"${row[header]}"`).join(','))
@@ -290,7 +355,7 @@ export default function Gastos() {
           <DollarSign className="icon-title" />
           Gestión de Gastos
         </h1>
-        <p className="page-subtitle">Administra y controla los egresos del restaurante</p>
+        <p className="page-subtitle">Administra y controla todos los gastos del restaurante</p>
       </header>
 
       {/* Estadísticas */}
@@ -311,17 +376,32 @@ export default function Gastos() {
         </div>
         
         <div className="stat-card">
-          <div className="stat-icon today">
-            <Calendar size={24} />
+          <div className="stat-icon sueldos">
+            <Users size={24} />
           </div>
           <div className="stat-content">
             <h3 className="stat-value">
               {new Intl.NumberFormat('es-BO', { 
                 style: 'currency', 
                 currency: 'BOB' 
-              }).format(getGastosHoy())}
+              }).format(getGastosSueldos())}
             </h3>
-            <p className="stat-label">Gastos Hoy</p>
+            <p className="stat-label">Gastos en Sueldos</p>
+          </div>
+        </div>
+        
+        <div className="stat-card">
+          <div className="stat-icon operativos">
+            <Building size={24} />
+          </div>
+          <div className="stat-content">
+            <h3 className="stat-value">
+              {new Intl.NumberFormat('es-BO', { 
+                style: 'currency', 
+                currency: 'BOB' 
+              }).format(getGastosOperativos())}
+            </h3>
+            <p className="stat-label">Gastos Operativos</p>
           </div>
         </div>
         
@@ -332,21 +412,6 @@ export default function Gastos() {
           <div className="stat-content">
             <h3 className="stat-value">{egresos.length}</h3>
             <p className="stat-label">Total Registros</p>
-          </div>
-        </div>
-        
-        <div className="stat-card">
-          <div className="stat-icon average">
-            <DollarSign size={24} />
-          </div>
-          <div className="stat-content">
-            <h3 className="stat-value">
-              {new Intl.NumberFormat('es-BO', { 
-                style: 'currency', 
-                currency: 'BOB' 
-              }).format(egresos.length ? getTotalGastos() / egresos.length : 0)}
-            </h3>
-            <p className="stat-label">Promedio por Gasto</p>
           </div>
         </div>
       </div>
@@ -392,14 +457,14 @@ export default function Gastos() {
             Filtros:
           </label>
           <select
-            value={filterSueldo}
-            onChange={(e) => setFilterSueldo(e.target.value)}
+            value={filterCategoria}
+            onChange={(e) => setFilterCategoria(e.target.value)}
             className="filter-select"
           >
-            <option value="">Todos los sueldos</option>
-            {sueldos.map(sueldo => (
-              <option key={sueldo.id_sueldo} value={sueldo.id_sueldo}>
-                {sueldo.cargos?.nombre || 'Sueldo'} - Bs. {sueldo.monto}
+            <option value="">Todas las categorías</option>
+            {categoriasGastos.map(categoria => (
+              <option key={categoria.id} value={categoria.id}>
+                {categoria.nombre}
               </option>
             ))}
           </select>
@@ -412,7 +477,8 @@ export default function Gastos() {
             <option value="">Todos los montos</option>
             <option value="menor100">Menor a 100 Bs</option>
             <option value="100-500">100 - 500 Bs</option>
-            <option value="mayor500">Mayor a 500 Bs</option>
+            <option value="500-1000">500 - 1,000 Bs</option>
+            <option value="mayor1000">Mayor a 1,000 Bs</option>
           </select>
         </div>
         
@@ -459,16 +525,19 @@ export default function Gastos() {
                 </div>
                 
                 <div className="form-group">
-                  <label className="form-label">Relacionado con Sueldo</label>
+                  <label className="form-label">Relacionar con Sueldo</label>
                   <select
                     value={form.id_sueldo}
                     onChange={(e) => setForm({...form, id_sueldo: e.target.value})}
                     className="form-input"
                   >
-                    <option value="">Seleccionar sueldo (opcional)</option>
+                    <option value="">Sin relación con sueldo</option>
                     {sueldos.map(sueldo => (
                       <option key={sueldo.id_sueldo} value={sueldo.id_sueldo}>
-                        {sueldo.cargos?.nombre || 'Sueldo'} - Bs. {sueldo.monto}
+                        {sueldo.cargos?.nombre} - {new Intl.NumberFormat('es-BO', { 
+                          style: 'currency', 
+                          currency: 'BOB' 
+                        }).format(sueldo.monto)}
                       </option>
                     ))}
                   </select>
@@ -528,7 +597,7 @@ export default function Gastos() {
             <p>No hay gastos que coincidan con los filtros aplicados</p>
             <button className="btn btn-primary" onClick={() => {
               setSearchTerm('');
-              setFilterSueldo('');
+              setFilterCategoria('');
               setFilterMonto('');
             }}>
               <Filter size={16} />
@@ -552,58 +621,71 @@ export default function Gastos() {
                   >
                     Detalle {sortField === 'detalle' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
+                  <th>Categoría</th>
                   <th 
                     className="sortable" 
                     onClick={() => ordenarPor('monto')}
                   >
                     Monto {sortField === 'monto' && (sortDirection === 'asc' ? '↑' : '↓')}
                   </th>
-                  <th>Relacionado con</th>
+                  <th>Tipo</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {gastosOrdenados.map(egreso => (
-                  <tr key={egreso.id_egreso} className="table-row">
-                    <td className="table-cell id-cell">#{egreso.id_egreso}</td>
-                    <td className="table-cell detail-cell">{egreso.detalle}</td>
-                    <td className="table-cell amount-cell">
-                      <span className="amount-badge">
-                        {new Intl.NumberFormat('es-BO', { 
-                          style: 'currency', 
-                          currency: 'BOB' 
-                        }).format(egreso.monto || 0)}
-                      </span>
-                    </td>
-                    <td className="table-cell">
-                      {egreso.id_sueldo ? (
-                        <span className="sueldo-tag">
-                          {getSueldoCargo(egreso.id_sueldo)}
+                {gastosOrdenados.map(egreso => {
+                  const categoria = getCategoriaGasto(egreso);
+                  const IconoCategoria = categoria.icon;
+                  const sueldoInfo = getInfoSueldo(egreso.id_sueldo);
+                  
+                  return (
+                    <tr key={egreso.id_egreso} className="table-row">
+                      <td className="table-cell id-cell">#{egreso.id_egreso}</td>
+                      <td className="table-cell detail-cell">{egreso.detalle}</td>
+                      <td className="table-cell category-cell">
+                        <span className="category-tag">
+                          <IconoCategoria size={14} />
+                          {categoria.nombre}
                         </span>
-                      ) : (
-                        <span className="no-relation">No relacionado</span>
-                      )}
-                    </td>
-                    <td className="table-cell actions-cell">
-                      <div className="action-buttons">
-                        <button 
-                          onClick={() => editarGasto(egreso)}
-                          className="btn-action edit"
-                          title="Editar gasto"
-                        >
-                          <Edit size={14} />
-                        </button>
-                        <button 
-                          onClick={() => eliminarGasto(egreso.id_egreso)}
-                          className="btn-action delete"
-                          title="Eliminar gasto"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="table-cell amount-cell">
+                        <span className="amount-badge">
+                          {new Intl.NumberFormat('es-BO', { 
+                            style: 'currency', 
+                            currency: 'BOB' 
+                          }).format(egreso.monto || 0)}
+                        </span>
+                      </td>
+                      <td className="table-cell">
+                        {egreso.id_sueldo ? (
+                          <span className="sueldo-tag">
+                            Sueldo - {sueldoInfo?.cargos?.nombre || 'N/A'}
+                          </span>
+                        ) : (
+                          <span className="gasto-tag">Gasto Operativo</span>
+                        )}
+                      </td>
+                      <td className="table-cell actions-cell">
+                        <div className="action-buttons">
+                          <button 
+                            onClick={() => editarGasto(egreso)}
+                            className="btn-action edit"
+                            title="Editar gasto"
+                          >
+                            <Edit size={14} />
+                          </button>
+                          <button 
+                            onClick={() => eliminarGasto(egreso.id_egreso)}
+                            className="btn-action delete"
+                            title="Eliminar gasto"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -677,17 +759,17 @@ export default function Gastos() {
           color: #1976d2;
         }
 
-        .stat-icon.today {
+        .stat-icon.sueldos {
           background: #e8f5e8;
           color: #2e7d32;
         }
 
-        .stat-icon.count {
+        .stat-icon.operativos {
           background: #fff3e0;
           color: #f57c00;
         }
 
-        .stat-icon.average {
+        .stat-icon.count {
           background: #f3e5f5;
           color: #7b1fa2;
         }
@@ -1035,6 +1117,21 @@ export default function Gastos() {
           word-wrap: break-word;
         }
 
+        .category-cell {
+          white-space: nowrap;
+        }
+
+        .category-tag {
+          background: #e3f2fd;
+          color: #1976d2;
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+
         .amount-cell {
           font-weight: 600;
         }
@@ -1055,9 +1152,12 @@ export default function Gastos() {
           font-size: 12px;
         }
 
-        .no-relation {
-          color: #6c757d;
-          font-style: italic;
+        .gasto-tag {
+          background: #fff3cd;
+          color: #856404;
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 12px;
         }
 
         .actions-cell {

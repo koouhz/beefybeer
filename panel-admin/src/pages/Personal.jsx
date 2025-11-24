@@ -19,8 +19,20 @@ import {
   Save,
   Loader,
   Users,
-  Eye
+  Eye,
+  EyeOff,
+  DollarSign
 } from "lucide-react";
+
+// Función para hashear contraseñas (usando SHA-256)
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 export default function Personal() {
   const [empleados, setEmpleados] = useState([]);
@@ -35,6 +47,19 @@ export default function Personal() {
   const [editingCi, setEditingCi] = useState(null);
   const [viewMode, setViewMode] = useState("lista");
   const [empleadoSeleccionado, setEmpleadoSeleccionado] = useState(null);
+  
+  // Nuevos estados para la contraseña
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordStrength, setPasswordStrength] = useState({
+    isValid: false,
+    checks: {
+      length: false,
+      uppercase: false,
+      lowercase: false,
+      number: false,
+      special: false
+    }
+  });
 
   const [form, setForm] = useState({
     ci: '',
@@ -48,14 +73,198 @@ export default function Personal() {
     password: ''
   });
 
+  const [formErrors, setFormErrors] = useState({});
+  const [checkingCi, setCheckingCi] = useState(false);
+
   // Estados para búsqueda y filtros
   const [searchTerm, setSearchTerm] = useState("");
   const [filtroCargo, setFiltroCargo] = useState("todos");
   const [filtroRol, setFiltroRol] = useState("todos");
 
+  // Datos predefinidos para cargos y roles
+  const cargosPredefinidos = [
+    { id_cargo: 1, nombre: 'Gerente', descripcion: 'Responsable de la gestión del establecimiento' },
+    { id_cargo: 2, nombre: 'Mesero', descripcion: 'Atención al cliente y servicio de mesa' },
+    { id_cargo: 3, nombre: 'Parrillero', descripcion: 'Preparación de alimentos a la parrilla' },
+    { id_cargo: 4, nombre: 'Limpiador', descripcion: 'Limpieza y mantenimiento del local' },
+    { id_cargo: 5, nombre: 'Cajero', descripcion: 'Manejo de caja y pagos' },
+    { id_cargo: 6, nombre: 'Cocinero', descripcion: 'Preparación de alimentos' },
+    { id_cargo: 7, nombre: 'Bartender', descripcion: 'Preparación de bebidas y cócteles' }
+  ];
+
+  const rolesPredefinidos = [
+    { id_rol: 1, nombre: 'Administrador', descripcion: 'Acceso completo al sistema' },
+    { id_rol: 2, nombre: 'Mesero', descripcion: 'Acceso a módulos de servicio' },
+    { id_rol: 3, nombre: 'Cajero', descripcion: 'Acceso a módulos de venta y caja' },
+    { id_rol: 4, nombre: 'Cocina', descripcion: 'Acceso a módulos de cocina' },
+    { id_rol: 5, nombre: 'Usuario', descripcion: 'Acceso básico al sistema' }
+  ];
+
   useEffect(() => {
     cargarDatos();
   }, []);
+
+  // Función para validar fortaleza de contraseña
+  const validatePasswordStrength = (password) => {
+    const checks = {
+      length: password.length >= 8,
+      uppercase: /[A-Z]/.test(password),
+      lowercase: /[a-z]/.test(password),
+      number: /[0-9]/.test(password),
+      special: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
+    };
+
+    const isValid = Object.values(checks).every(check => check === true);
+
+    setPasswordStrength({
+      isValid,
+      checks
+    });
+
+    return isValid;
+  };
+
+  // Función para verificar si el CI ya existe
+  const checkCiExists = async (ci) => {
+    if (!ci || ci.length < 5) return false;
+    
+    try {
+      setCheckingCi(true);
+      const { data, error } = await supabase
+        .from('empleados')
+        .select('ci')
+        .eq('ci', ci)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error verificando CI:', error);
+        return false;
+      }
+
+      return !!data; // Retorna true si existe, false si no existe
+    } catch (error) {
+      console.error('Error verificando CI:', error);
+      return false;
+    } finally {
+      setCheckingCi(false);
+    }
+  };
+
+  // Validación mejorada del formulario
+  const validateForm = async () => {
+    const errors = {};
+    
+    // Validación de CI
+    if (!form.ci.trim()) {
+      errors.ci = "El CI es requerido";
+    } else if (form.ci.length < 5) {
+      errors.ci = "El CI debe tener al menos 5 caracteres";
+    } else if (!/^\d+$/.test(form.ci)) {
+      errors.ci = "El CI debe contener solo números";
+    } else if (form.ci.length > 15) {
+      errors.ci = "El CI no puede tener más de 15 caracteres";
+    } else if (!editingCi) {
+      // Solo verificar existencia si no estamos editando
+      const ciExists = await checkCiExists(form.ci);
+      if (ciExists) {
+        errors.ci = "Ya existe un empleado con este CI";
+      }
+    }
+
+    // Validación de nombre
+    if (!form.nombre.trim()) {
+      errors.nombre = "El nombre es requerido";
+    } else if (form.nombre.length < 2) {
+      errors.nombre = "El nombre debe tener al menos 2 caracteres";
+    } else if (form.nombre.length > 50) {
+      errors.nombre = "El nombre no puede tener más de 50 caracteres";
+    } else if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/.test(form.nombre)) {
+      errors.nombre = "El nombre solo puede contener letras y espacios";
+    }
+
+    // Validación de apellido paterno
+    if (!form.pat.trim()) {
+      errors.pat = "El apellido paterno es requerido";
+    } else if (form.pat.length < 2) {
+      errors.pat = "El apellido paterno debe tener al menos 2 caracteres";
+    } else if (form.pat.length > 30) {
+      errors.pat = "El apellido paterno no puede tener más de 30 caracteres";
+    } else if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ]+$/.test(form.pat)) {
+      errors.pat = "El apellido paterno solo puede contener letras";
+    }
+
+    // Validación de apellido materno
+    if (form.mat && form.mat.trim()) {
+      if (form.mat.length < 2) {
+        errors.mat = "El apellido materno debe tener al menos 2 caracteres";
+      } else if (form.mat.length > 30) {
+        errors.mat = "El apellido materno no puede tener más de 30 caracteres";
+      } else if (!/^[a-zA-ZáéíóúÁÉÍÓÚñÑ]+$/.test(form.mat)) {
+        errors.mat = "El apellido materno solo puede contener letras";
+      }
+    }
+
+    // Validación de fecha de nacimiento CORREGIDA
+    if (!form.fecha_nac) {
+      errors.fecha_nac = "La fecha de nacimiento es requerida";
+    } else {
+      const fechaNac = new Date(form.fecha_nac);
+      const hoy = new Date();
+      
+      // Calcular edad exacta
+      let edad = hoy.getFullYear() - fechaNac.getFullYear();
+      const mes = hoy.getMonth() - fechaNac.getMonth();
+      
+      // Ajustar edad si aún no ha pasado el mes de cumpleaños
+      if (mes < 0 || (mes === 0 && hoy.getDate() < fechaNac.getDate())) {
+        edad--;
+      }
+      
+      if (fechaNac >= hoy) {
+        errors.fecha_nac = "La fecha de nacimiento debe ser anterior a hoy";
+      } else if (edad < 14) {
+        errors.fecha_nac = "El empleado debe tener al menos 14 años";
+      } else if (edad > 100) {
+        errors.fecha_nac = "La edad no puede ser mayor a 100 años";
+      }
+    }
+
+    // Validación de cargo
+    if (!form.id_cargo) {
+      errors.id_cargo = "Debe seleccionar un cargo";
+    }
+
+    // Validación de rol
+    if (!form.id_rol) {
+      errors.id_rol = "Debe seleccionar un rol";
+    }
+
+    // Validación de email
+    if (form.email && form.email.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(form.email)) {
+        errors.email = "El email no es válido";
+      } else if (form.email.length > 100) {
+        errors.email = "El email no puede tener más de 100 caracteres";
+      }
+    }
+
+    // Validación de contraseña
+    if (!editingCi) {
+      if (!form.password) {
+        errors.password = "La contraseña es requerida";
+      } else if (!validatePasswordStrength(form.password)) {
+        errors.password = "La contraseña no cumple con los requisitos de seguridad";
+      }
+    } else if (form.password && form.password !== '') {
+      if (!validatePasswordStrength(form.password)) {
+        errors.password = "La nueva contraseña no cumple con los requisitos de seguridad";
+      }
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const showMessage = (message, type = "error") => {
     if (type === "success") {
@@ -70,25 +279,25 @@ export default function Personal() {
   const cargarDatos = async () => {
     try {
       setLoading(true);
-      const [empleadosRes, rolesRes, cargosRes, sueldosRes] = await Promise.all([
+      
+      // Cargar empleados y sueldos desde Supabase
+      const [empleadosRes, sueldosRes] = await Promise.all([
         supabase.from('empleados').select(`
           *,
           roles (nombre, descripcion),
           cargos (nombre, descripcion)
         `).order('ci'),
-        supabase.from('roles').select('*').order('id_rol'),
-        supabase.from('cargos').select('*').order('id_cargo'),
         supabase.from('sueldos').select('*').order('id_sueldo')
       ]);
 
       if (empleadosRes.error) throw empleadosRes.error;
-      if (rolesRes.error) throw rolesRes.error;
-      if (cargosRes.error) throw cargosRes.error;
       if (sueldosRes.error) throw sueldosRes.error;
 
+      // Usar datos predefinidos para cargos y roles
+      setCargos(cargosPredefinidos);
+      setRoles(rolesPredefinidos);
+      
       setEmpleados(empleadosRes.data || []);
-      setRoles(rolesRes.data || []);
-      setCargos(cargosRes.data || []);
       setSueldos(sueldosRes.data || []);
     } catch (error) {
       showMessage(`Error al cargar datos: ${error.message}`);
@@ -97,57 +306,44 @@ export default function Personal() {
     }
   };
 
-  // Validaciones
-  const validateEmpleado = (empleado) => {
-    if (!empleado.ci.trim()) throw new Error("El CI es requerido");
-    if (empleado.ci.length < 5) throw new Error("El CI debe tener al menos 5 caracteres");
-    if (!empleado.nombre.trim()) throw new Error("El nombre es requerido");
-    if (!empleado.pat.trim()) throw new Error("El apellido paterno es requerido");
-    if (!empleado.fecha_nac) throw new Error("La fecha de nacimiento es requerida");
-    
-    // Validar fecha (debe ser menor a la fecha actual)
-    const fechaNac = new Date(empleado.fecha_nac);
-    const hoy = new Date();
-    if (fechaNac >= hoy) throw new Error("La fecha de nacimiento debe ser anterior a hoy");
-    
-    // Validar edad mínima (18 años)
-    const edadMinima = new Date();
-    edadMinima.setFullYear(edadMinima.getFullYear() - 18);
-    if (fechaNac > edadMinima) throw new Error("El empleado debe ser mayor de 18 años");
-
-    if (!empleado.id_rol) throw new Error("Debe seleccionar un rol");
-    if (!empleado.id_cargo) throw new Error("Debe seleccionar un cargo");
-    
-    if (empleado.email && !/\S+@\S+\.\S+/.test(empleado.email)) {
-      throw new Error("El email no es válido");
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    const isValid = await validateForm();
+    if (!isValid) {
+      showMessage("Por favor, corrige los errores en el formulario");
+      return;
+    }
+
     try {
-      validateEmpleado(form);
+      // Preparar datos para enviar
+      const datosAEnviar = { ...form };
+      
+      // Hashear la contraseña si se proporciona una nueva
+      if (datosAEnviar.password && datosAEnviar.password !== '') {
+        datosAEnviar.password = await hashPassword(datosAEnviar.password);
+      } else if (editingCi) {
+        // Si estamos editando y no se cambió la contraseña, no enviarla
+        delete datosAEnviar.password;
+      }
       
       if (editingCi) {
         const { error } = await supabase
           .from('empleados')
-          .update(form)
+          .update(datosAEnviar)
           .eq('ci', editingCi);
         if (error) throw error;
         showMessage("Empleado actualizado exitosamente", "success");
       } else {
-        // Verificar si el CI ya existe
-        const { data: existe } = await supabase
-          .from('empleados')
-          .select('ci')
-          .eq('ci', form.ci)
-          .single();
-
-        if (existe) throw new Error("Ya existe un empleado con este CI");
+        // Verificar nuevamente si el CI ya existe (doble verificación)
+        const ciExists = await checkCiExists(form.ci);
+        if (ciExists) {
+          throw new Error("Ya existe un empleado con este CI");
+        }
 
         const { error } = await supabase
           .from('empleados')
-          .insert([form]);
+          .insert([datosAEnviar]);
         if (error) throw error;
         showMessage("Empleado creado exitosamente", "success");
       }
@@ -169,10 +365,55 @@ export default function Personal() {
       id_rol: empleado.id_rol,
       id_cargo: empleado.id_cargo,
       email: empleado.email || '',
-      password: empleado.password || ''
+      password: '' // Limpiar contraseña al editar por seguridad
     });
     setEditingCi(empleado.ci);
     setShowForm(true);
+    // Resetear validación de contraseña
+    setPasswordStrength({
+      isValid: false,
+      checks: {
+        length: false,
+        uppercase: false,
+        lowercase: false,
+        number: false,
+        special: false
+      }
+    });
+    setFormErrors({});
+  };
+
+  // Función para manejar cambio de contraseña
+  const handlePasswordChange = (e) => {
+    const newPassword = e.target.value;
+    setForm({...form, password: newPassword});
+    validatePasswordStrength(newPassword);
+    
+    // Limpiar error de contraseña si se está escribiendo
+    if (formErrors.password) {
+      setFormErrors(prev => ({ ...prev, password: '' }));
+    }
+  };
+
+  // Función para manejar cambios en los campos
+  const handleInputChange = async (field, value) => {
+    setForm(prev => ({ ...prev, [field]: value }));
+    
+    // Limpiar error del campo cuando el usuario empiece a escribir
+    if (formErrors[field]) {
+      setFormErrors(prev => ({ ...prev, [field]: '' }));
+    }
+
+    // Verificar CI único en tiempo real (solo para nuevo empleado)
+    if (field === 'ci' && !editingCi && value.length >= 5) {
+      const ciExists = await checkCiExists(value);
+      if (ciExists) {
+        setFormErrors(prev => ({ 
+          ...prev, 
+          ci: "Ya existe un empleado con este CI" 
+        }));
+      }
+    }
   };
 
   const verDetalleEmpleado = (empleado) => {
@@ -181,7 +422,7 @@ export default function Personal() {
   };
 
   const eliminarEmpleado = async (ci) => {
-    if (window.confirm('¿Estás seguro de eliminar este empleado?')) {
+    if (window.confirm('¿Estás seguro de eliminar este empleado? Esta acción no se puede deshacer.')) {
       try {
         const { error } = await supabase
           .from('empleados')
@@ -210,6 +451,18 @@ export default function Personal() {
     });
     setEditingCi(null);
     setShowForm(false);
+    setShowPassword(false);
+    setFormErrors({});
+    setPasswordStrength({
+      isValid: false,
+      checks: {
+        length: false,
+        uppercase: false,
+        lowercase: false,
+        number: false,
+        special: false
+      }
+    });
   };
 
   // Filtros y cálculos
@@ -222,8 +475,8 @@ export default function Personal() {
       empleado.roles?.nombre?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       empleado.cargos?.nombre?.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesCargo = filtroCargo === "todos" || empleado.id_cargo.toString() === filtroCargo;
-    const matchesRol = filtroRol === "todos" || empleado.id_rol.toString() === filtroRol;
+    const matchesCargo = filtroCargo === "todos" || empleado.id_cargo?.toString() === filtroCargo;
+    const matchesRol = filtroRol === "todos" || empleado.id_rol?.toString() === filtroRol;
 
     return matchesSearch && matchesCargo && matchesRol;
   });
@@ -328,14 +581,14 @@ export default function Personal() {
                   <Briefcase size={20} />
                   <div>
                     <label>Cargo</label>
-                    <span>{empleadoSeleccionado.cargos?.nombre || 'N/A'}</span>
+                    <span>{empleadoSeleccionado.cargos?.nombre || cargosPredefinidos.find(c => c.id_cargo === empleadoSeleccionado.id_cargo)?.nombre || 'N/A'}</span>
                   </div>
                 </div>
                 <div className="info-group">
                   <Shield size={20} />
                   <div>
                     <label>Rol</label>
-                    <span>{empleadoSeleccionado.roles?.nombre || 'N/A'}</span>
+                    <span>{empleadoSeleccionado.roles?.nombre || rolesPredefinidos.find(r => r.id_rol === empleadoSeleccionado.id_rol)?.nombre || 'N/A'}</span>
                   </div>
                 </div>
                 {empleadoSeleccionado.email && (
@@ -385,30 +638,48 @@ export default function Personal() {
               />
             </div>
             <div className="filter-group">
-              <select 
-                value={filtroCargo}
-                onChange={(e) => setFiltroCargo(e.target.value)}
-                className="filter-select"
+              <div className="filter-item">
+                <label className="filter-label">Cargo:</label>
+                <select 
+                  value={filtroCargo}
+                  onChange={(e) => setFiltroCargo(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="todos">Todos los cargos</option>
+                  {cargosPredefinidos.map(cargo => (
+                    <option key={cargo.id_cargo} value={cargo.id_cargo}>
+                      {cargo.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="filter-item">
+                <label className="filter-label">Rol:</label>
+                <select 
+                  value={filtroRol}
+                  onChange={(e) => setFiltroRol(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="todos">Todos los roles</option>
+                  {rolesPredefinidos.map(rol => (
+                    <option key={rol.id_rol} value={rol.id_rol}>
+                      {rol.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button 
+                onClick={() => {
+                  setFiltroCargo("todos");
+                  setFiltroRol("todos");
+                  setSearchTerm("");
+                }}
+                className="btn btn-outline btn-small"
               >
-                <option value="todos">Todos los cargos</option>
-                {cargos.map(cargo => (
-                  <option key={cargo.id_cargo} value={cargo.id_cargo}>
-                    {cargo.nombre}
-                  </option>
-                ))}
-              </select>
-              <select 
-                value={filtroRol}
-                onChange={(e) => setFiltroRol(e.target.value)}
-                className="filter-select"
-              >
-                <option value="todos">Todos los roles</option>
-                {roles.map(rol => (
-                  <option key={rol.id_rol} value={rol.id_rol}>
-                    {rol.nombre}
-                  </option>
-                ))}
-              </select>
+                Limpiar Filtros
+              </button>
             </div>
           </div>
 
@@ -445,6 +716,22 @@ export default function Personal() {
                 <div className="stat-label">Roles Diferentes</div>
               </div>
             </div>
+            <div className="stat-card">
+              <div className="stat-icon">
+                <DollarSign size={24} />
+              </div>
+              <div className="stat-info">
+                <div className="stat-value">
+                  {new Intl.NumberFormat('es-BO', { 
+                    style: 'currency', 
+                    currency: 'BOB' 
+                  }).format(
+                    filteredEmpleados.reduce((sum, emp) => sum + getSueldoCargo(emp.id_cargo), 0)
+                  )}
+                </div>
+                <div className="stat-label">Total en Sueldos</div>
+              </div>
+            </div>
           </div>
 
           {/* Botón de acción */}
@@ -459,126 +746,248 @@ export default function Personal() {
           {showForm && (
             <div className="modal-overlay">
               <div className="modal large">
-                <h3>{editingCi ? "Editar Empleado" : "Nuevo Empleado"}</h3>
-                <form onSubmit={handleSubmit}>
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>CI *</label>
-                      <input
-                        type="text"
-                        value={form.ci}
-                        onChange={(e) => setForm({...form, ci: e.target.value})}
-                        required
-                        disabled={!!editingCi}
-                        placeholder="Número de carnet"
-                        maxLength={20}
-                      />
+                <div className="modal-header">
+                  <h3>{editingCi ? "Editar Empleado" : "Nuevo Empleado"}</h3>
+                  <button onClick={resetForm} className="btn-close">
+                    <X size={20} />
+                  </button>
+                </div>
+                <form onSubmit={handleSubmit} className="form-container">
+                  <div className="form-section">
+                    <h4>Información Personal</h4>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">
+                          CI *
+                          {formErrors.ci && <span className="error-indicator">!</span>}
+                          {checkingCi && <span className="checking-indicator">✓</span>}
+                        </label>
+                        <input
+                          type="text"
+                          value={form.ci}
+                          onChange={(e) => handleInputChange('ci', e.target.value)}
+                          className={`form-input ${formErrors.ci ? 'error' : ''} ${checkingCi ? 'checking' : ''}`}
+                          required
+                          disabled={!!editingCi}
+                          placeholder="Número de carnet"
+                          maxLength={15}
+                        />
+                        {formErrors.ci && <span className="error-message">{formErrors.ci}</span>}
+                        {!formErrors.ci && form.ci.length >= 5 && !checkingCi && (
+                          <span className="success-message">✓ CI disponible</span>
+                        )}
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">
+                          Fecha Nacimiento *
+                          {formErrors.fecha_nac && <span className="error-indicator">!</span>}
+                        </label>
+                        <input
+                          type="date"
+                          value={form.fecha_nac}
+                          onChange={(e) => handleInputChange('fecha_nac', e.target.value)}
+                          className={`form-input ${formErrors.fecha_nac ? 'error' : ''}`}
+                          required
+                          max={new Date().toISOString().split('T')[0]}
+                        />
+                        {formErrors.fecha_nac && <span className="error-message">{formErrors.fecha_nac}</span>}
+                        {form.fecha_nac && !formErrors.fecha_nac && (
+                          <span className="success-message">
+                            ✓ Edad: {calcularEdad(form.fecha_nac)} años
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="form-group">
-                      <label>Fecha Nacimiento *</label>
-                      <input
-                        type="date"
-                        value={form.fecha_nac}
-                        onChange={(e) => setForm({...form, fecha_nac: e.target.value})}
-                        required
-                        max={new Date().toISOString().split('T')[0]}
-                      />
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">
+                          Nombre *
+                          {formErrors.nombre && <span className="error-indicator">!</span>}
+                        </label>
+                        <input
+                          type="text"
+                          value={form.nombre}
+                          onChange={(e) => handleInputChange('nombre', e.target.value)}
+                          className={`form-input ${formErrors.nombre ? 'error' : ''}`}
+                          required
+                          placeholder="Nombres"
+                          maxLength={50}
+                        />
+                        {formErrors.nombre && <span className="error-message">{formErrors.nombre}</span>}
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">
+                          Apellido Paterno *
+                          {formErrors.pat && <span className="error-indicator">!</span>}
+                        </label>
+                        <input
+                          type="text"
+                          value={form.pat}
+                          onChange={(e) => handleInputChange('pat', e.target.value)}
+                          className={`form-input ${formErrors.pat ? 'error' : ''}`}
+                          required
+                          placeholder="Apellido paterno"
+                          maxLength={30}
+                        />
+                        {formErrors.pat && <span className="error-message">{formErrors.pat}</span>}
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">
+                          Apellido Materno
+                          {formErrors.mat && <span className="error-indicator">!</span>}
+                        </label>
+                        <input
+                          type="text"
+                          value={form.mat}
+                          onChange={(e) => handleInputChange('mat', e.target.value)}
+                          className={`form-input ${formErrors.mat ? 'error' : ''}`}
+                          placeholder="Apellido materno"
+                          maxLength={30}
+                        />
+                        {formErrors.mat && <span className="error-message">{formErrors.mat}</span>}
+                      </div>
                     </div>
                   </div>
 
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Nombre *</label>
-                      <input
-                        type="text"
-                        value={form.nombre}
-                        onChange={(e) => setForm({...form, nombre: e.target.value})}
-                        required
-                        placeholder="Nombres"
-                        maxLength={50}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Apellido Paterno *</label>
-                      <input
-                        type="text"
-                        value={form.pat}
-                        onChange={(e) => setForm({...form, pat: e.target.value})}
-                        required
-                        placeholder="Apellido paterno"
-                        maxLength={30}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Apellido Materno</label>
-                      <input
-                        type="text"
-                        value={form.mat}
-                        onChange={(e) => setForm({...form, mat: e.target.value})}
-                        placeholder="Apellido materno"
-                        maxLength={30}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Cargo *</label>
-                      <select
-                        value={form.id_cargo}
-                        onChange={(e) => setForm({...form, id_cargo: e.target.value})}
-                        required
-                      >
-                        <option value="">Seleccionar cargo</option>
-                        {cargos.map(cargo => (
-                          <option key={cargo.id_cargo} value={cargo.id_cargo}>
-                            {cargo.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label>Rol *</label>
-                      <select
-                        value={form.id_rol}
-                        onChange={(e) => setForm({...form, id_rol: e.target.value})}
-                        required
-                      >
-                        <option value="">Seleccionar rol</option>
-                        {roles.map(rol => (
-                          <option key={rol.id_rol} value={rol.id_rol}>
-                            {rol.nombre}
-                          </option>
-                        ))}
-                      </select>
+                  <div className="form-section">
+                    <h4>Información Laboral</h4>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">
+                          Cargo *
+                          {formErrors.id_cargo && <span className="error-indicator">!</span>}
+                        </label>
+                        <select
+                          value={form.id_cargo}
+                          onChange={(e) => handleInputChange('id_cargo', e.target.value)}
+                          className={`form-input ${formErrors.id_cargo ? 'error' : ''}`}
+                          required
+                        >
+                          <option value="">Seleccionar cargo</option>
+                          {cargosPredefinidos.map(cargo => (
+                            <option key={cargo.id_cargo} value={cargo.id_cargo}>
+                              {cargo.nombre} - {cargo.descripcion}
+                            </option>
+                          ))}
+                        </select>
+                        {formErrors.id_cargo && <span className="error-message">{formErrors.id_cargo}</span>}
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">
+                          Rol *
+                          {formErrors.id_rol && <span className="error-indicator">!</span>}
+                        </label>
+                        <select
+                          value={form.id_rol}
+                          onChange={(e) => handleInputChange('id_rol', e.target.value)}
+                          className={`form-input ${formErrors.id_rol ? 'error' : ''}`}
+                          required
+                        >
+                          <option value="">Seleccionar rol</option>
+                          {rolesPredefinidos.map(rol => (
+                            <option key={rol.id_rol} value={rol.id_rol}>
+                              {rol.nombre} - {rol.descripcion}
+                            </option>
+                          ))}
+                        </select>
+                        {formErrors.id_rol && <span className="error-message">{formErrors.id_rol}</span>}
+                      </div>
                     </div>
                   </div>
 
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Email</label>
-                      <input
-                        type="email"
-                        value={form.email}
-                        onChange={(e) => setForm({...form, email: e.target.value})}
-                        placeholder="correo@ejemplo.com"
-                        maxLength={100}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Contraseña</label>
-                      <input
-                        type="password"
-                        value={form.password}
-                        onChange={(e) => setForm({...form, password: e.target.value})}
-                        placeholder="Contraseña del sistema"
-                        maxLength={50}
-                      />
+                  <div className="form-section">
+                    <h4>Información de Acceso</h4>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">
+                          Email
+                          {formErrors.email && <span className="error-indicator">!</span>}
+                        </label>
+                        <input
+                          type="email"
+                          value={form.email}
+                          onChange={(e) => handleInputChange('email', e.target.value)}
+                          className={`form-input ${formErrors.email ? 'error' : ''}`}
+                          placeholder="correo@ejemplo.com"
+                          maxLength={100}
+                        />
+                        {formErrors.email && <span className="error-message">{formErrors.email}</span>}
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">
+                          Contraseña {!editingCi && "*"}
+                          {formErrors.password && <span className="error-indicator">!</span>}
+                        </label>
+                        <div className="password-input-container">
+                          <input
+                            type={showPassword ? "text" : "password"}
+                            value={form.password}
+                            onChange={handlePasswordChange}
+                            className={`form-input ${formErrors.password ? 'error' : ''}`}
+                            placeholder={editingCi ? "Dejar en blanco para no cambiar" : "Contraseña segura"}
+                            maxLength={50}
+                            required={!editingCi}
+                          />
+                          <button
+                            type="button"
+                            className="password-toggle"
+                            onClick={() => setShowPassword(!showPassword)}
+                          >
+                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                        {formErrors.password && <span className="error-message">{formErrors.password}</span>}
+                        
+                        {/* Indicador de fortaleza de contraseña */}
+                        {form.password && (
+                          <div className="password-strength">
+                            <div className="strength-header">
+                              <span>Requisitos de contraseña:</span>
+                              <span className={`strength-status ${passwordStrength.isValid ? 'valid' : 'invalid'}`}>
+                                {passwordStrength.isValid ? '✓ Segura' : '✗ Débil'}
+                              </span>
+                            </div>
+                            <div className="strength-checks">
+                              <div className={`check-item ${passwordStrength.checks.length ? 'valid' : 'invalid'}`}>
+                                {passwordStrength.checks.length ? '✓' : '✗'} Mínimo 8 caracteres
+                              </div>
+                              <div className={`check-item ${passwordStrength.checks.uppercase ? 'valid' : 'invalid'}`}>
+                                {passwordStrength.checks.uppercase ? '✓' : '✗'} Una letra mayúscula
+                              </div>
+                              <div className={`check-item ${passwordStrength.checks.lowercase ? 'valid' : 'invalid'}`}>
+                                {passwordStrength.checks.lowercase ? '✓' : '✗'} Una letra minúscula
+                              </div>
+                              <div className={`check-item ${passwordStrength.checks.number ? 'valid' : 'invalid'}`}>
+                                {passwordStrength.checks.number ? '✓' : '✗'} Un número
+                              </div>
+                              <div className={`check-item ${passwordStrength.checks.special ? 'valid' : 'invalid'}`}>
+                                {passwordStrength.checks.special ? '✓' : '✗'} Un carácter especial
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {!editingCi && (
+                          <small className="password-hint">
+                            La contraseña debe cumplir con todos los requisitos de seguridad y será hasheada antes de guardarse
+                          </small>
+                        )}
+                        {editingCi && (
+                          <small className="password-hint">
+                            Dejar en blanco para mantener la contraseña actual
+                          </small>
+                        )}
+                      </div>
                     </div>
                   </div>
 
                   <div className="form-actions">
-                    <button type="submit" className="btn btn-success">
+                    <button 
+                      type="submit" 
+                      className="btn btn-success"
+                      disabled={!editingCi && form.password && !passwordStrength.isValid}
+                    >
                       <Save size={16} />
                       {editingCi ? "Actualizar" : "Guardar"}
                     </button>
@@ -596,6 +1005,12 @@ export default function Personal() {
             <div className="table-header">
               <Users size={20} />
               <h2>Personal ({filteredEmpleados.length})</h2>
+              <div className="table-actions">
+                <span className="filter-indicator">
+                  {filtroCargo !== "todos" && `Cargo: ${cargosPredefinidos.find(c => c.id_cargo.toString() === filtroCargo)?.nombre}`}
+                  {filtroRol !== "todos" && ` | Rol: ${rolesPredefinidos.find(r => r.id_rol.toString() === filtroRol)?.nombre}`}
+                </span>
+              </div>
             </div>
             <div className="table-container">
               <table>
@@ -621,8 +1036,12 @@ export default function Personal() {
                       <td className="age-cell">
                         {calcularEdad(empleado.fecha_nac)} años
                       </td>
-                      <td className="cargo-cell">{empleado.cargos?.nombre || 'N/A'}</td>
-                      <td className="rol-cell">{empleado.roles?.nombre || 'N/A'}</td>
+                      <td className="cargo-cell">
+                        {empleado.cargos?.nombre || cargosPredefinidos.find(c => c.id_cargo === empleado.id_cargo)?.nombre || 'N/A'}
+                      </td>
+                      <td className="rol-cell">
+                        {empleado.roles?.nombre || rolesPredefinidos.find(r => r.id_rol === empleado.id_rol)?.nombre || 'N/A'}
+                      </td>
                       <td className="sueldo-cell">
                         {new Intl.NumberFormat('es-BO', { 
                           style: 'currency', 
@@ -661,6 +1080,18 @@ export default function Personal() {
               {filteredEmpleados.length === 0 && (
                 <div className="empty-state">
                   <p>No se encontraron empleados</p>
+                  {(filtroCargo !== "todos" || filtroRol !== "todos" || searchTerm) && (
+                    <button 
+                      className="btn btn-outline"
+                      onClick={() => {
+                        setFiltroCargo("todos");
+                        setFiltroRol("todos");
+                        setSearchTerm("");
+                      }}
+                    >
+                      Limpiar filtros
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -848,6 +1279,7 @@ export default function Personal() {
           gap: 16px;
           margin-bottom: 24px;
           flex-wrap: wrap;
+          align-items: end;
         }
 
         .search-box {
@@ -875,14 +1307,45 @@ export default function Personal() {
         .filter-group {
           display: flex;
           gap: 12px;
+          align-items: end;
+          flex-wrap: wrap;
+        }
+
+        .filter-item {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .filter-label {
+          font-size: 12px;
+          color: #6d4611;
+          font-weight: 500;
         }
 
         .filter-select {
-          padding: 12px;
+          padding: 10px 12px;
           border: 1px solid #e9d8b5;
-          border-radius: 8px;
+          border-radius: 6px;
           font-size: 14px;
           min-width: 180px;
+          background: white;
+        }
+
+        .btn-small {
+          padding: 8px 12px;
+          font-size: 12px;
+        }
+
+        .btn-outline {
+          background: transparent;
+          border: 1px solid #7a3b06;
+          color: #7a3b06;
+        }
+
+        .btn-outline:hover {
+          background: #7a3b06;
+          color: white;
         }
 
         /* Estadísticas */
@@ -922,7 +1385,7 @@ export default function Personal() {
           opacity: 0.8;
         }
 
-        /* Botones y formularios (mantener estilos similares a los anteriores) */
+        /* Botones y formularios */
         .action-buttons {
           margin-bottom: 24px;
         }
@@ -965,6 +1428,17 @@ export default function Personal() {
           transform: translateY(-1px);
         }
 
+        .btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        .btn:disabled:hover {
+          opacity: 0.6;
+          transform: none;
+        }
+
         .modal-overlay {
           position: fixed;
           top: 0;
@@ -981,10 +1455,9 @@ export default function Personal() {
 
         .modal {
           background: white;
-          padding: 24px;
           border-radius: 12px;
           border: 1px solid #e9d8b5;
-          max-width: 500px;
+          max-width: 800px;
           width: 100%;
           max-height: 90vh;
           overflow-y: auto;
@@ -994,10 +1467,42 @@ export default function Personal() {
           max-width: 800px;
         }
 
-        .modal h3 {
+        .modal-header {
+          padding: 24px;
+          border-bottom: 1px solid #e9d8b5;
+          display: flex;
+          justify-content: between;
+          align-items: center;
+        }
+
+        .modal-header h3 {
           color: #7a3b06;
-          margin-bottom: 20px;
+          margin: 0;
           font-size: 20px;
+        }
+
+        .btn-close {
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: #6d4611;
+          padding: 5px;
+        }
+
+        .form-container {
+          padding: 24px;
+        }
+
+        .form-section {
+          margin-bottom: 24px;
+        }
+
+        .form-section h4 {
+          color: #7a3b06;
+          margin-bottom: 16px;
+          font-size: 16px;
+          border-bottom: 1px solid #e9d8b5;
+          padding-bottom: 8px;
         }
 
         .form-row {
@@ -1011,32 +1516,154 @@ export default function Personal() {
           margin-bottom: 16px;
         }
 
-        .form-group label {
+        .form-label {
           display: block;
           margin-bottom: 6px;
           color: #6d4611;
           font-weight: 500;
+          display: flex;
+          align-items: center;
+          gap: 5px;
         }
 
-        .form-group input,
-        .form-group select {
+        .form-input {
           width: 100%;
           padding: 10px;
           border: 1px solid #e9d8b5;
           border-radius: 6px;
           font-size: 14px;
+          transition: border-color 0.2s;
         }
 
-        .form-group input:focus,
-        .form-group select:focus {
+        .form-input:focus {
           outline: none;
           border-color: #7a3b06;
+        }
+
+        .form-input.error {
+          border-color: #dc3545;
+          background-color: #fff5f5;
+        }
+
+        .form-input.checking {
+          border-color: #ffc107;
+          background-color: #fffbf0;
+        }
+
+        .error-indicator {
+          color: #dc3545;
+          font-weight: bold;
+        }
+
+        .checking-indicator {
+          color: #ffc107;
+          font-weight: bold;
+        }
+
+        .error-message {
+          color: #dc3545;
+          font-size: 12px;
+          margin-top: 4px;
+          display: block;
+        }
+
+        .success-message {
+          color: #28a745;
+          font-size: 12px;
+          margin-top: 4px;
+          display: block;
+          font-weight: 500;
         }
 
         .form-actions {
           display: flex;
           gap: 12px;
           margin-top: 24px;
+          padding-top: 16px;
+          border-top: 1px solid #e9d8b5;
+        }
+
+        /* Nuevos estilos para la contraseña */
+        .password-input-container {
+          position: relative;
+        }
+
+        .password-input-container input {
+          padding-right: 40px;
+          width: 100%;
+        }
+
+        .password-toggle {
+          position: absolute;
+          right: 10px;
+          top: 50%;
+          transform: translateY(-50%);
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: #6d4611;
+          opacity: 0.7;
+          padding: 4px;
+        }
+
+        .password-toggle:hover {
+          opacity: 1;
+        }
+
+        .password-strength {
+          margin-top: 10px;
+          padding: 12px;
+          background: #f8f9fa;
+          border-radius: 6px;
+          border: 1px solid #e9d8b5;
+        }
+
+        .strength-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+          font-size: 12px;
+          font-weight: 500;
+        }
+
+        .strength-status.valid {
+          color: #28a745;
+          font-weight: 600;
+        }
+
+        .strength-status.invalid {
+          color: #dc3545;
+          font-weight: 600;
+        }
+
+        .strength-checks {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .check-item {
+          font-size: 11px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .check-item.valid {
+          color: #28a745;
+        }
+
+        .check-item.invalid {
+          color: #6c757d;
+        }
+
+        .password-hint {
+          display: block;
+          margin-top: 6px;
+          font-size: 11px;
+          color: #6d4611;
+          opacity: 0.7;
         }
 
         /* Tabla */
@@ -1054,12 +1681,23 @@ export default function Personal() {
           align-items: center;
           gap: 10px;
           background-color: #f8f5ee;
+          justify-content: between;
         }
 
         .table-header h2 {
           color: #7a3b06;
           margin: 0;
           font-size: 18px;
+        }
+
+        .table-actions {
+          margin-left: auto;
+        }
+
+        .filter-indicator {
+          font-size: 12px;
+          color: #6d4611;
+          opacity: 0.7;
         }
 
         .table-container {
@@ -1162,6 +1800,10 @@ export default function Personal() {
           opacity: 0.7;
         }
 
+        .empty-state .btn {
+          margin-top: 10px;
+        }
+
         @media (max-width: 768px) {
           .container {
             padding: 16px;
@@ -1171,9 +1813,14 @@ export default function Personal() {
           }
           .filter-group {
             flex-direction: column;
+            align-items: stretch;
+          }
+          .filter-item {
+            width: 100%;
           }
           .filter-select {
             min-width: auto;
+            width: 100%;
           }
           .detalle-card {
             grid-template-columns: 1fr;
@@ -1189,6 +1836,14 @@ export default function Personal() {
           }
           .modal.large {
             max-width: calc(100vw - 40px);
+          }
+          .table-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+          }
+          .table-actions {
+            margin-left: 0;
           }
         }
       `}</style>

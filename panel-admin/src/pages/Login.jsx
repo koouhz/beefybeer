@@ -1,24 +1,34 @@
 import { useState } from "react";
 import { supabase } from "../bd/supabaseClient";
+import { Eye, EyeOff, AlertTriangle, CheckCircle, X } from "lucide-react";
+
+// Función para hashear contraseñas (usando SHA-256)
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 export default function Login({ onLogin }) {
-  const [isLogin, setIsLogin] = useState(true);
   const [formData, setFormData] = useState({
     email: "",
-    password: "",
-    nombre: "",
-    pat: "",
-    mat: "",
-    fecha_nac: "",
-    ci: ""
+    password: ""
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  
+  // Estados para la contraseña
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleChange = (e) => {
+    const { name, value } = e.target;
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
+      [name]: value
     });
   };
 
@@ -26,60 +36,71 @@ export default function Login({ onLogin }) {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setSuccess("");
 
     try {
-      const { data: empleado, error } = await supabase
+      // Validar campos requeridos
+      if (!formData.email.trim() || !formData.password.trim()) {
+        throw new Error("Por favor ingrese email y contraseña");
+      }
+
+      // Primero buscar el usuario por email
+      const { data: empleado, error: queryError } = await supabase
         .from('empleados')
         .select('*')
         .eq('email', formData.email)
-        .eq('password', formData.password)
         .single();
 
-      if (error) throw error;
-      
-      if (empleado) {
-        localStorage.setItem('empleado', JSON.stringify(empleado));
-        onLogin(empleado);
-      } else {
-        setError("Credenciales incorrectas");
+      if (queryError) {
+        // Si no encuentra el usuario
+        if (queryError.code === 'PGRST116') {
+          throw new Error("Email o contraseña incorrectos");
+        }
+        throw queryError;
       }
+
+      if (!empleado) {
+        throw new Error("Email o contraseña incorrectos");
+      }
+
+      // Verificar la contraseña (compatibilidad con contraseñas existentes y nuevas hasheadas)
+      let passwordMatch = false;
+
+      // Si la contraseña en la BD está hasheada (64 caracteres = SHA-256)
+      if (empleado.password && empleado.password.length === 64) {
+        const hashedPassword = await hashPassword(formData.password);
+        passwordMatch = (empleado.password === hashedPassword);
+      } else {
+        // Si la contraseña en la BD no está hasheada (contraseñas existentes)
+        passwordMatch = (empleado.password === formData.password);
+      }
+
+      if (passwordMatch) {
+        setSuccess("Inicio de sesión exitoso");
+        localStorage.setItem('empleado', JSON.stringify(empleado));
+        setTimeout(() => onLogin(empleado), 1000);
+      } else {
+        setError("Email o contraseña incorrectos");
+      }
+
     } catch (error) {
-      setError("Error al iniciar sesión: " + error.message);
+      // Manejar específicamente el error de credenciales incorrectas
+      if (error.message.includes("incorrectos") || error.message.includes("PGRST116")) {
+        setError("Email o contraseña incorrectos");
+      } else {
+        setError("Error al iniciar sesión: " + error.message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-
-    try {
-      const { data, error } = await supabase
-        .from('empleados')
-        .insert([{
-          ci: formData.ci,
-          nombre: formData.nombre,
-          pat: formData.pat,
-          mat: formData.mat,
-          fecha_nac: formData.fecha_nac,
-          email: formData.email,
-          password: formData.password
-        }])
-        .select();
-
-      if (error) throw error;
-      
-      if (data && data.length > 0) {
-        localStorage.setItem('empleado', JSON.stringify(data[0]));
-        onLogin(data[0]);
-      }
-    } catch (error) {
-      setError("Error al registrar: " + error.message);
-    } finally {
-      setLoading(false);
-    }
+  const resetForm = () => {
+    setFormData({
+      email: "",
+      password: ""
+    });
+    setShowPassword(false);
   };
 
   return (
@@ -98,7 +119,7 @@ export default function Login({ onLogin }) {
         boxShadow: "0 8px 32px rgba(122, 59, 6, 0.1)",
         border: "1px solid #e9d8b5",
         width: "100%",
-        maxWidth: "450px"
+        maxWidth: "400px"
       }}>
         <div style={{ textAlign: "center", marginBottom: "30px" }}>
           <h1 style={{
@@ -114,7 +135,7 @@ export default function Login({ onLogin }) {
             fontSize: "16px",
             opacity: 0.8
           }}>
-            {isLogin ? "Iniciar Sesión" : "Registrar Empleado"}
+            Iniciar Sesión
           </p>
         </div>
 
@@ -126,160 +147,57 @@ export default function Login({ onLogin }) {
             padding: "12px",
             borderRadius: "8px",
             marginBottom: "20px",
-            fontSize: "14px"
+            fontSize: "14px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px"
           }}>
-            {error}
+            <AlertTriangle size={16} />
+            <span>{error}</span>
+            <button 
+              onClick={() => setError("")} 
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                marginLeft: "auto"
+              }}
+            >
+              <X size={14} />
+            </button>
           </div>
         )}
 
-        <form onSubmit={isLogin ? handleLogin : handleRegister}>
-          {!isLogin && (
-            <>
-              <div style={{ marginBottom: "16px" }}>
-                <label style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  color: "#7a3b06",
-                  fontSize: "14px",
-                  fontWeight: "500"
-                }}>
-                  Cédula de Identidad
-                </label>
-                <input
-                  type="text"
-                  name="ci"
-                  value={formData.ci}
-                  onChange={handleChange}
-                  required
-                  style={{
-                    width: "100%",
-                    padding: "12px",
-                    border: "1px solid #e9d8b5",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    color: "#7a3b06",
-                    backgroundColor: "#fefaf5"
-                  }}
-                  placeholder="Ingrese su CI"
-                />
-              </div>
+        {success && (
+          <div style={{
+            background: "#f0fff4",
+            border: "1px solid #c3e6cb",
+            color: "#155724",
+            padding: "12px",
+            borderRadius: "8px",
+            marginBottom: "20px",
+            fontSize: "14px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px"
+          }}>
+            <CheckCircle size={16} />
+            <span>{success}</span>
+            <button 
+              onClick={() => setSuccess("")} 
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                marginLeft: "auto"
+              }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
-              <div style={{ marginBottom: "16px" }}>
-                <label style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  color: "#7a3b06",
-                  fontSize: "14px",
-                  fontWeight: "500"
-                }}>
-                  Nombre
-                </label>
-                <input
-                  type="text"
-                  name="nombre"
-                  value={formData.nombre}
-                  onChange={handleChange}
-                  required
-                  style={{
-                    width: "100%",
-                    padding: "12px",
-                    border: "1px solid #e9d8b5",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    color: "#7a3b06",
-                    backgroundColor: "#fefaf5"
-                  }}
-                  placeholder="Ingrese su nombre"
-                />
-              </div>
-
-              <div style={{ marginBottom: "16px" }}>
-                <label style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  color: "#7a3b06",
-                  fontSize: "14px",
-                  fontWeight: "500"
-                }}>
-                  Apellido Paterno
-                </label>
-                <input
-                  type="text"
-                  name="pat"
-                  value={formData.pat}
-                  onChange={handleChange}
-                  required
-                  style={{
-                    width: "100%",
-                    padding: "12px",
-                    border: "1px solid #e9d8b5",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    color: "#7a3b06",
-                    backgroundColor: "#fefaf5"
-                  }}
-                  placeholder="Ingrese apellido paterno"
-                />
-              </div>
-
-              <div style={{ marginBottom: "16px" }}>
-                <label style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  color: "#7a3b06",
-                  fontSize: "14px",
-                  fontWeight: "500"
-                }}>
-                  Apellido Materno
-                </label>
-                <input
-                  type="text"
-                  name="mat"
-                  value={formData.mat}
-                  onChange={handleChange}
-                  style={{
-                    width: "100%",
-                    padding: "12px",
-                    border: "1px solid #e9d8b5",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    color: "#7a3b06",
-                    backgroundColor: "#fefaf5"
-                  }}
-                  placeholder="Ingrese apellido materno"
-                />
-              </div>
-
-              <div style={{ marginBottom: "16px" }}>
-                <label style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  color: "#7a3b06",
-                  fontSize: "14px",
-                  fontWeight: "500"
-                }}>
-                  Fecha de Nacimiento
-                </label>
-                <input
-                  type="date"
-                  name="fecha_nac"
-                  value={formData.fecha_nac}
-                  onChange={handleChange}
-                  required
-                  style={{
-                    width: "100%",
-                    padding: "12px",
-                    border: "1px solid #e9d8b5",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    color: "#7a3b06",
-                    backgroundColor: "#fefaf5"
-                  }}
-                />
-              </div>
-            </>
-          )}
-
+        <form onSubmit={handleLogin}>
           <div style={{ marginBottom: "16px" }}>
             <label style={{
               display: "block",
@@ -288,7 +206,7 @@ export default function Login({ onLogin }) {
               fontSize: "14px",
               fontWeight: "500"
             }}>
-              Email
+              Email *
             </label>
             <input
               type="email"
@@ -306,6 +224,7 @@ export default function Login({ onLogin }) {
                 backgroundColor: "#fefaf5"
               }}
               placeholder="Ingrese su email"
+              maxLength={100}
             />
           </div>
 
@@ -317,25 +236,45 @@ export default function Login({ onLogin }) {
               fontSize: "14px",
               fontWeight: "500"
             }}>
-              Contraseña
+              Contraseña *
             </label>
-            <input
-              type="password"
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              required
-              style={{
-                width: "100%",
-                padding: "12px",
-                border: "1px solid #e9d8b5",
-                borderRadius: "8px",
-                fontSize: "14px",
-                color: "#7a3b06",
-                backgroundColor: "#fefaf5"
-              }}
-              placeholder="Ingrese su contraseña"
-            />
+            <div style={{ position: "relative" }}>
+              <input
+                type={showPassword ? "text" : "password"}
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
+                required
+                style={{
+                  width: "100%",
+                  padding: "12px 40px 12px 12px",
+                  border: "1px solid #e9d8b5",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  color: "#7a3b06",
+                  backgroundColor: "#fefaf5"
+                }}
+                placeholder="Ingrese su contraseña"
+                maxLength={50}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: "absolute",
+                  right: "12px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#6d4611",
+                  opacity: 0.7
+                }}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </div>
 
           <button
@@ -344,7 +283,7 @@ export default function Login({ onLogin }) {
             style={{
               width: "100%",
               padding: "14px",
-              backgroundColor: "#7a3b06",
+              backgroundColor: loading ? "#6c757d" : "#7a3b06",
               color: "white",
               border: "none",
               borderRadius: "8px",
@@ -352,29 +291,22 @@ export default function Login({ onLogin }) {
               fontWeight: "600",
               cursor: loading ? "not-allowed" : "pointer",
               opacity: loading ? 0.7 : 1,
-              marginBottom: "16px"
+              marginBottom: "16px",
+              transition: "all 0.2s"
             }}
           >
-            {loading ? "Cargando..." : (isLogin ? "Iniciar Sesión" : "Registrar")}
+            {loading ? "Iniciando sesión..." : "Iniciar Sesión"}
           </button>
         </form>
 
-        <div style={{ textAlign: "center" }}>
-          <button
-            onClick={() => setIsLogin(!isLogin)}
-            style={{
-              background: "none",
-              border: "none",
-              color: "#7a3b06",
-              cursor: "pointer",
-              fontSize: "14px",
-              textDecoration: "underline"
-            }}
-          >
-            {isLogin 
-              ? "¿No tienes cuenta? Regístrate aquí" 
-              : "¿Ya tienes cuenta? Inicia sesión aquí"}
-          </button>
+        <div style={{ textAlign: "center", marginTop: "20px" }}>
+          <p style={{
+            color: "#6d4611",
+            fontSize: "12px",
+            opacity: 0.7
+          }}>
+            Solo personal autorizado
+          </p>
         </div>
       </div>
     </div>
