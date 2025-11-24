@@ -20,7 +20,11 @@ import {
   Eye,
   PlusCircle,
   MinusCircle,
-  Calculator
+  Calculator,
+  RefreshCw,
+  CreditCard,
+  Ban,
+  Clock4
 } from "lucide-react";
 
 export default function Pedidos() {
@@ -38,11 +42,13 @@ export default function Pedidos() {
   const [editingId, setEditingId] = useState(null);
   const [pedidoSeleccionado, setPedidoSeleccionado] = useState(null);
   const [viewMode, setViewMode] = useState("lista");
+  const [modoEdicionProductos, setModoEdicionProductos] = useState(false);
 
   const [form, setForm] = useState({
     detalle: '',
     nromesa: '',
-    ci: ''
+    ci: '',
+    estado: 'pendiente'
   });
 
   const [productoForm, setProductoForm] = useState({
@@ -52,6 +58,7 @@ export default function Pedidos() {
   });
 
   const [productosSeleccionados, setProductosSeleccionados] = useState([]);
+  const [productosOriginales, setProductosOriginales] = useState([]);
 
   // Estados para búsqueda y filtros
   const [searchTerm, setSearchTerm] = useState("");
@@ -61,6 +68,134 @@ export default function Pedidos() {
   useEffect(() => {
     cargarDatos();
   }, []);
+
+  // Función para cambiar el estado de un pedido
+  const cambiarEstadoPedido = async (idPedido, nuevoEstado) => {
+    try {
+      console.log(`🔄 Cambiando estado del pedido ${idPedido} a ${nuevoEstado}`);
+      
+      const { error } = await supabase
+        .from('pedidos')
+        .update({ estado: nuevoEstado })
+        .eq('id_pedido', idPedido);
+
+      if (error) throw error;
+
+      // Si el estado es "pagado" o "cancelado", liberar la mesa
+      if (nuevoEstado === 'pagado' || nuevoEstado === 'cancelado') {
+        // Obtener el pedido para saber en qué mesa está
+        const { data: pedido } = await supabase
+          .from('pedidos')
+          .select('nromesa')
+          .eq('id_pedido', idPedido)
+          .single();
+
+        if (pedido && pedido.nromesa) {
+          await verificarEstadoMesa(pedido.nromesa);
+        }
+      }
+
+      // Si el estado es "pagado", crear una venta
+      if (nuevoEstado === 'pagado') {
+        await crearVenta(idPedido);
+      }
+
+      showMessage(`Estado del pedido actualizado a ${nuevoEstado}`, "success");
+      
+      // Recargar los datos para reflejar los cambios
+      await cargarDatos();
+      
+    } catch (error) {
+      console.error('❌ Error cambiando estado del pedido:', error);
+      showMessage(`Error al cambiar estado: ${error.message}`);
+    }
+  };
+
+  // Función para crear una venta cuando el pedido se marca como pagado
+  const crearVenta = async (idPedido) => {
+    try {
+      // Obtener el pedido completo con sus productos
+      const { data: pedido, error: pedidoError } = await supabase
+        .from('pedidos')
+        .select(`
+          *,
+          pedido_producto (
+            *,
+            productos (*)
+          )
+        `)
+        .eq('id_pedido', idPedido)
+        .single();
+
+      if (pedidoError) throw pedidoError;
+
+      // Calcular el monto total sumando los subtotales de los productos
+      const montoTotal = pedido.pedido_producto?.reduce((total, item) => {
+        return total + (parseFloat(item.subtotal) || 0);
+      }, 0) || 0;
+
+      // Crear la venta
+      const { error: ventaError } = await supabase
+        .from('ventas')
+        .insert([
+          {
+            id_pedido: idPedido,
+            monto_total: montoTotal,
+            descripcion: `Venta del pedido #${idPedido}`
+          }
+        ]);
+
+      if (ventaError) throw ventaError;
+
+      console.log(`✅ Venta creada para pedido ${idPedido} con monto: ${montoTotal}`);
+      
+    } catch (error) {
+      console.error('❌ Error creando venta:', error);
+      throw error;
+    }
+  };
+
+  // Función para verificar y actualizar el estado de una mesa específica
+  const verificarEstadoMesa = async (nromesa) => {
+    try {
+      // Obtener pedidos para esta mesa (solo los pendientes)
+      const { data: pedidosMesa, error: pedidosError } = await supabase
+        .from('pedidos')
+        .select('*')
+        .eq('nromesa', nromesa)
+        .eq('estado', 'pendiente');
+
+      if (pedidosError) throw pedidosError;
+
+      const tienePedidosActivos = pedidosMesa && pedidosMesa.length > 0;
+      const nuevoEstado = tienePedidosActivos ? 'ocupada' : 'libre';
+
+      // Obtener el estado actual de la mesa
+      const { data: mesaActual, error: mesaError } = await supabase
+        .from('mesas')
+        .select('estado')
+        .eq('nromesa', nromesa)
+        .single();
+
+      if (mesaError) throw mesaError;
+
+      // Solo actualizar si el estado ha cambiado
+      if (mesaActual.estado !== nuevoEstado) {
+        const { error: updateError } = await supabase
+          .from('mesas')
+          .update({ estado: nuevoEstado })
+          .eq('nromesa', nromesa);
+
+        if (updateError) throw updateError;
+
+        console.log(`✅ Mesa ${nromesa} actualizada a ${nuevoEstado}`);
+      }
+
+      return mesaActual.estado;
+    } catch (error) {
+      console.error(`❌ Error verificando estado de mesa ${nromesa}:`, error);
+    }
+  };
 
   const showMessage = (message, type = "error") => {
     if (type === "success") {
@@ -112,6 +247,23 @@ export default function Pedidos() {
   const validatePedido = (pedido) => {
     if (!pedido.nromesa) throw new Error("Debe seleccionar una mesa");
     if (!pedido.ci) throw new Error("Debe seleccionar un empleado");
+    
+    // Verificar si la mesa ya tiene un pedido activo (solo pendiente)
+    const mesaConPedidoActivo = pedidos.find(p => 
+      p.nromesa === parseInt(pedido.nromesa) && 
+      p.id_pedido !== editingId &&
+      p.estado === 'pendiente'
+    );
+    
+    if (mesaConPedidoActivo) {
+      throw new Error(`La mesa ${pedido.nromesa} ya tiene un pedido activo (Pedido #${mesaConPedidoActivo.id_pedido})`);
+    }
+
+    // Verificar estado de la mesa
+    const mesaSeleccionada = mesas.find(m => m.nromesa === parseInt(pedido.nromesa));
+    if (mesaSeleccionada && mesaSeleccionada.estado === 'reservada') {
+      throw new Error(`La mesa ${pedido.nromesa} está reservada y no puede recibir pedidos`);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -134,10 +286,47 @@ export default function Pedidos() {
         showMessage("Pedido creado exitosamente", "success");
       }
 
+      // Verificar estado de la mesa después de crear/actualizar pedido
+      if (form.nromesa) {
+        await verificarEstadoMesa(parseInt(form.nromesa));
+      }
+
       resetForm();
       cargarDatos();
     } catch (error) {
       showMessage(error.message);
+    }
+  };
+
+  const editarPedido = (pedido) => {
+    setForm({
+      detalle: pedido.detalle || '',
+      nromesa: pedido.nromesa.toString(),
+      ci: pedido.ci,
+      estado: pedido.estado || 'pendiente'
+    });
+    setEditingId(pedido.id_pedido);
+    setShowForm(true);
+  };
+
+  const gestionarProductosPedido = async (pedido) => {
+    try {
+      // Cargar productos actuales del pedido
+      const productosActuales = getProductosPedido(pedido.id_pedido).map(pp => ({
+        id_pedido_producto: pp.id_pedido_producto,
+        id_producto: pp.id_producto,
+        cantidad: pp.cantidad,
+        subtotal: pp.subtotal,
+        producto: pp.productos
+      }));
+      
+      setProductosSeleccionados(productosActuales);
+      setProductosOriginales([...productosActuales]);
+      setEditingId(pedido.id_pedido);
+      setModoEdicionProductos(true);
+      setShowProductosForm(true);
+    } catch (error) {
+      showMessage(`Error al cargar productos: ${error.message}`);
     }
   };
 
@@ -200,6 +389,16 @@ export default function Pedidos() {
         throw new Error("Debe agregar al menos un producto al pedido");
       }
 
+      if (modoEdicionProductos) {
+        // Modo edición: eliminar productos existentes y agregar los nuevos
+        const { error: errorEliminar } = await supabase
+          .from('pedido_producto')
+          .delete()
+          .eq('id_pedido', idPedido);
+
+        if (errorEliminar) throw errorEliminar;
+      }
+
       const productosData = productosSeleccionados.map(item => ({
         id_pedido: idPedido,
         id_producto: item.id_producto,
@@ -213,8 +412,14 @@ export default function Pedidos() {
 
       if (error) throw error;
 
-      showMessage("Productos agregados al pedido exitosamente", "success");
+      showMessage(
+        modoEdicionProductos ? "Productos actualizados exitosamente" : "Productos agregados al pedido exitosamente", 
+        "success"
+      );
+      
       setProductosSeleccionados([]);
+      setProductosOriginales([]);
+      setModoEdicionProductos(false);
       setShowProductosForm(false);
       cargarDatos();
     } catch (error) {
@@ -222,7 +427,21 @@ export default function Pedidos() {
     }
   };
 
+  const cancelarEdicionProductos = () => {
+    setProductosSeleccionados([...productosOriginales]);
+    setProductosOriginales([]);
+    setModoEdicionProductos(false);
+    setShowProductosForm(false);
+  };
+
   const eliminarPedido = async (id) => {
+    // Primero obtener el pedido para saber la mesa
+    const { data: pedido } = await supabase
+      .from('pedidos')
+      .select('nromesa')
+      .eq('id_pedido', id)
+      .single();
+
     // Primero eliminar los productos del pedido
     const { error: errorProductos } = await supabase
       .from('pedido_producto')
@@ -243,6 +462,12 @@ export default function Pedidos() {
           .eq('id_pedido', id);
         if (error) throw error;
         showMessage("Pedido eliminado exitosamente", "success");
+        
+        // Verificar estado de la mesa después de eliminar
+        if (pedido && pedido.nromesa) {
+          await verificarEstadoMesa(pedido.nromesa);
+        }
+        
         cargarDatos();
       } catch (error) {
         showMessage(`Error eliminando pedido: ${error.message}`);
@@ -259,12 +484,15 @@ export default function Pedidos() {
     setForm({
       detalle: '',
       nromesa: '',
-      ci: ''
+      ci: '',
+      estado: 'pendiente'
     });
     setProductosSeleccionados([]);
+    setProductosOriginales([]);
     setEditingId(null);
     setShowForm(false);
     setShowProductosForm(false);
+    setModoEdicionProductos(false);
   };
 
   // Cálculos
@@ -277,6 +505,40 @@ export default function Pedidos() {
     return productosSeleccionados.reduce((total, item) => total + item.subtotal, 0);
   };
 
+  // Obtener mesas disponibles (sin pedidos activos pendientes)
+  const getMesasDisponibles = () => {
+    const mesasConPedidosActivos = pedidos
+      .filter(p => p.estado === 'pendiente')
+      .map(p => p.nromesa);
+    
+    return mesas.filter(mesa => 
+      !mesasConPedidosActivos.includes(mesa.nromesa) && 
+      mesa.estado !== 'reservada'
+    );
+  };
+
+  // Estilos para estados de pedidos
+  const getEstadoPedidoStyles = (estado) => {
+    const estados = {
+      pendiente: { 
+        backgroundColor: "#fff3cd", 
+        color: "#856404"
+      },
+      pagado: { 
+        backgroundColor: "#e8f5e8", 
+        color: "#28a745"
+      },
+      cancelado: { 
+        backgroundColor: "#fff5f5", 
+        color: "#dc3545"
+      }
+    };
+    return estados[estado] || { 
+      backgroundColor: "#f8f9fa", 
+      color: "#6c757d"
+    };
+  };
+
   // Filtros
   const filteredPedidos = pedidos.filter(pedido => {
     const matchesSearch = 
@@ -286,19 +548,20 @@ export default function Pedidos() {
       pedido.empleados?.nombre.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesMesa = filtroMesa === "todos" || pedido.nromesa.toString() === filtroMesa;
+    const matchesEstado = filtroEstado === "todos" || pedido.estado === filtroEstado;
 
-    return matchesSearch && matchesMesa;
+    return matchesSearch && matchesMesa && matchesEstado;
   });
 
   // Estadísticas
   const estadisticas = {
     totalPedidos: pedidos.length,
-    pedidosHoy: pedidos.filter(p => {
-      const hoy = new Date().toDateString();
-      const fechaPedido = new Date(p.created_at || new Date()).toDateString();
-      return fechaPedido === hoy;
-    }).length,
-    totalVentas: pedidos.reduce((total, pedido) => total + calcularTotalPedido(pedido.id_pedido), 0),
+    pedidosPendientes: pedidos.filter(p => p.estado === 'pendiente').length,
+    pedidosPagados: pedidos.filter(p => p.estado === 'pagado').length,
+    pedidosCancelados: pedidos.filter(p => p.estado === 'cancelado').length,
+    totalVentas: pedidos
+      .filter(p => p.estado === 'pagado')
+      .reduce((total, pedido) => total + calcularTotalPedido(pedido.id_pedido), 0),
     promedioPedido: pedidos.length > 0 ? 
       pedidos.reduce((total, pedido) => total + calcularTotalPedido(pedido.id_pedido), 0) / pedidos.length : 0
   };
@@ -489,6 +752,29 @@ export default function Pedidos() {
                     padding: "10px 0",
                     borderBottom: "1px solid #e9d8b5"
                   }}>
+                    <span style={{ color: "#6d4611", fontWeight: "500" }}>Estado:</span>
+                    <span style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      padding: "6px 12px",
+                      borderRadius: "20px",
+                      fontSize: "14px",
+                      fontWeight: "600",
+                      ...getEstadoPedidoStyles(pedidoSeleccionado.estado)
+                    }}>
+                      {pedidoSeleccionado.estado === 'pendiente' && '⏳ Pendiente'}
+                      {pedidoSeleccionado.estado === 'pagado' && '✅ Pagado'}
+                      {pedidoSeleccionado.estado === 'cancelado' && '❌ Cancelado'}
+                      {!pedidoSeleccionado.estado && 'No especificado'}
+                    </span>
+                  </div>
+                  <div style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    padding: "10px 0",
+                    borderBottom: "1px solid #e9d8b5"
+                  }}>
                     <span style={{ color: "#6d4611", fontWeight: "500" }}>Total:</span>
                     <span style={{ color: "#28a745", fontWeight: "700", fontSize: "18px" }}>
                       {new Intl.NumberFormat('es-BO', { 
@@ -518,11 +804,80 @@ export default function Pedidos() {
                     </p>
                   )}
                 </div>
+
+                {/* Selector de estado en el detalle */}
+                <div style={{ marginTop: "20px" }}>
+                  <label style={{
+                    display: "block",
+                    marginBottom: "8px",
+                    color: "#6d4611",
+                    fontWeight: "500"
+                  }}>
+                    Cambiar Estado del Pedido
+                  </label>
+                  <select
+                    value={pedidoSeleccionado.estado || 'pendiente'}
+                    onChange={(e) => {
+                      cambiarEstadoPedido(pedidoSeleccionado.id_pedido, e.target.value);
+                      setPedidoSeleccionado({...pedidoSeleccionado, estado: e.target.value});
+                    }}
+                    style={{
+                      padding: "10px 12px",
+                      border: "1px solid #e9d8b5",
+                      borderRadius: "6px",
+                      fontSize: "14px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      width: "100%",
+                      ...getEstadoPedidoStyles(pedidoSeleccionado.estado)
+                    }}
+                  >
+                    <option value="pendiente">
+                      ⏳ Pendiente - La mesa está ocupada
+                    </option>
+                    <option value="pagado">
+                      ✅ Pagado - Se registra venta y libera mesa
+                    </option>
+                    <option value="cancelado">
+                      ❌ Cancelado - No se registra venta y libera mesa
+                    </option>
+                  </select>
+                  <div style={{ fontSize: "12px", color: "#6d4611", marginTop: "8px", opacity: 0.7 }}>
+                    {pedidoSeleccionado.estado === 'pendiente' && 'El pedido está activo y ocupa la mesa'}
+                    {pedidoSeleccionado.estado === 'pagado' && 'El pedido fue pagado y la mesa se liberó'}
+                    {pedidoSeleccionado.estado === 'cancelado' && 'El pedido fue cancelado y la mesa se liberó'}
+                  </div>
+                </div>
               </div>
             </div>
 
             <div>
-              <h3 style={{ color: "#7a3b06", marginBottom: "20px" }}>Productos del Pedido</h3>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                <h3 style={{ color: "#7a3b06", margin: 0 }}>
+                  Productos del Pedido
+                </h3>
+                <button
+                  onClick={() => gestionarProductosPedido(pedidoSeleccionado)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "10px 16px",
+                    border: "none",
+                    borderRadius: "8px",
+                    cursor: "pointer",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    backgroundColor: "#ffc107",
+                    color: "#7a3b06"
+                  }}
+                >
+                  <Edit size={16} />
+                  Gestionar Productos
+                </button>
+              </div>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "600px" }}>
                   <thead>
@@ -637,6 +992,22 @@ export default function Pedidos() {
                   </option>
                 ))}
               </select>
+              <select 
+                value={filtroEstado}
+                onChange={(e) => setFiltroEstado(e.target.value)}
+                style={{
+                  padding: "12px",
+                  border: "1px solid #e9d8b5",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  minWidth: "180px"
+                }}
+              >
+                <option value="todos">Todos los estados</option>
+                <option value="pendiente">Pendiente</option>
+                <option value="pagado">Pagado</option>
+                <option value="cancelado">Cancelado</option>
+              </select>
             </div>
           </div>
 
@@ -649,9 +1020,10 @@ export default function Pedidos() {
           }}>
             {[
               { label: "Total Pedidos", value: estadisticas.totalPedidos, icon: ShoppingCart, color: "#e3f2fd", iconColor: "#1976d2" },
-              { label: "Pedidos Hoy", value: estadisticas.pedidosHoy, icon: CheckCircle2, color: "#e8f5e8", iconColor: "#28a745" },
-              { label: "Total Ventas", value: estadisticas.totalVentas, icon: DollarSign, color: "#f3e5f5", iconColor: "#7b1fa2" },
-              { label: "Promedio/Pedido", value: estadisticas.promedioPedido, icon: Calculator, color: "#fff3cd", iconColor: "#856404" }
+              { label: "Pendientes", value: estadisticas.pedidosPendientes, icon: Clock4, color: "#fff3cd", iconColor: "#856404" },
+              { label: "Pagados", value: estadisticas.pedidosPagados, icon: CheckCircle, color: "#e8f5e8", iconColor: "#28a745" },
+              { label: "Cancelados", value: estadisticas.pedidosCancelados, icon: Ban, color: "#fff5f5", iconColor: "#dc3545" },
+              { label: "Total Ventas", value: estadisticas.totalVentas, icon: DollarSign, color: "#f3e5f5", iconColor: "#7b1fa2" }
             ].map((stat, index) => (
               <div key={index} style={{
                 background: "white",
@@ -676,7 +1048,7 @@ export default function Pedidos() {
                     fontWeight: "700",
                     color: "#7a3b06"
                   }}>
-                    {stat.label === "Total Ventas" || stat.label === "Promedio/Pedido" ? 
+                    {stat.label === "Total Ventas" ? 
                       new Intl.NumberFormat('es-BO', { 
                         style: 'currency', 
                         currency: 'BOB' 
@@ -768,12 +1140,35 @@ export default function Pedidos() {
                       }}
                     >
                       <option value="">Seleccionar mesa</option>
-                      {mesas.filter(mesa => mesa.estado === 'libre' || mesa.estado === 'ocupada').map(mesa => (
-                        <option key={mesa.nromesa} value={mesa.nromesa}>
-                          Mesa {mesa.nromesa} - Salón {mesa.salon} ({mesa.estado})
-                        </option>
-                      ))}
+                      {editingId ? (
+                        // Al editar, mostrar todas las mesas excepto las que tienen pedidos activos (excluyendo el actual)
+                        mesas.filter(mesa => {
+                          const mesaConPedidoActivo = pedidos.find(p => 
+                            p.nromesa === mesa.nromesa && 
+                            p.id_pedido !== editingId &&
+                            p.estado === 'pendiente'
+                          );
+                          return !mesaConPedidoActivo && mesa.estado !== 'reservada';
+                        }).map(mesa => (
+                          <option key={mesa.nromesa} value={mesa.nromesa}>
+                            Mesa {mesa.nromesa} - Salón {mesa.salon} ({mesa.estado})
+                          </option>
+                        ))
+                      ) : (
+                        // Al crear nuevo, solo mostrar mesas disponibles
+                        getMesasDisponibles().map(mesa => (
+                          <option key={mesa.nromesa} value={mesa.nromesa}>
+                            Mesa {mesa.nromesa} - Salón {mesa.salon} ({mesa.estado})
+                          </option>
+                        ))
+                      )}
                     </select>
+                    <div style={{ fontSize: "12px", color: "#6d4611", marginTop: "4px", opacity: 0.8 }}>
+                      {editingId 
+                        ? "Solo se muestran mesas sin pedidos activos (pendientes)"
+                        : "Solo se muestran mesas disponibles (sin pedidos activos y no reservadas)"
+                      }
+                    </div>
                   </div>
 
                   <div style={{ marginBottom: "16px" }}>
@@ -803,6 +1198,33 @@ export default function Pedidos() {
                           {empleado.nombre} {empleado.pat} - {empleado.ci}
                         </option>
                       ))}
+                    </select>
+                  </div>
+
+                  <div style={{ marginBottom: "16px" }}>
+                    <label style={{
+                      display: "block",
+                      marginBottom: "6px",
+                      color: "#6d4611",
+                      fontWeight: "500"
+                    }}>
+                      Estado del Pedido
+                    </label>
+                    <select
+                      value={form.estado}
+                      onChange={(e) => setForm({...form, estado: e.target.value})}
+                      style={{
+                        width: "100%",
+                        padding: "10px",
+                        border: "1px solid #e9d8b5",
+                        borderRadius: "6px",
+                        fontSize: "14px",
+                        ...getEstadoPedidoStyles(form.estado)
+                      }}
+                    >
+                      <option value="pendiente">⏳ Pendiente</option>
+                      <option value="pagado">✅ Pagado</option>
+                      <option value="cancelado">❌ Cancelado</option>
                     </select>
                   </div>
 
@@ -870,7 +1292,7 @@ export default function Pedidos() {
             </div>
           )}
 
-          {/* Formulario para agregar productos */}
+          {/* Formulario para gestionar productos */}
           {showProductosForm && (
             <div style={{
               position: "fixed",
@@ -890,13 +1312,14 @@ export default function Pedidos() {
                 padding: "24px",
                 borderRadius: "12px",
                 border: "1px solid #e9d8b5",
-                maxWidth: "600px",
+                maxWidth: "700px",
                 width: "100%",
                 maxHeight: "90vh",
                 overflowY: "auto"
               }}>
-                <h3 style={{ color: "#7a3b06", marginBottom: "20px", fontSize: "20px" }}>
-                  Agregar Productos al Pedido
+                <h3 style={{ color: "#7a3b06", marginBottom: "20px", fontSize: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
+                  <RefreshCw size={20} />
+                  Gestionar Productos del Pedido
                 </h3>
                 
                 {/* Formulario para agregar producto */}
@@ -991,15 +1414,15 @@ export default function Pedidos() {
                 {productosSeleccionados.length > 0 && (
                   <div style={{ marginBottom: "20px" }}>
                     <h4 style={{ color: "#7a3b06", marginBottom: "10px", fontSize: "16px" }}>
-                      Productos Seleccionados
+                      Productos del Pedido ({productosSeleccionados.length})
                     </h4>
-                    <div style={{ maxHeight: "200px", overflowY: "auto", border: "1px solid #e9d8b5", borderRadius: "6px" }}>
+                    <div style={{ maxHeight: "300px", overflowY: "auto", border: "1px solid #e9d8b5", borderRadius: "6px" }}>
                       {productosSeleccionados.map((item, index) => (
                         <div key={index} style={{
                           display: "flex",
                           justifyContent: "space-between",
                           alignItems: "center",
-                          padding: "10px",
+                          padding: "12px",
                           borderBottom: "1px solid #e9d8b5",
                           backgroundColor: index % 2 === 0 ? "#f8f5ee" : "white"
                         }}>
@@ -1021,7 +1444,7 @@ export default function Pedidos() {
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
-                                padding: "4px",
+                                padding: "6px",
                                 border: "none",
                                 borderRadius: "4px",
                                 cursor: "pointer",
@@ -1029,9 +1452,15 @@ export default function Pedidos() {
                                 color: "#7a3b06"
                               }}
                             >
-                              <MinusCircle size={14} />
+                              <MinusCircle size={16} />
                             </button>
-                            <span style={{ minWidth: "30px", textAlign: "center", fontWeight: "500" }}>
+                            <span style={{ 
+                              minWidth: "40px", 
+                              textAlign: "center", 
+                              fontWeight: "600",
+                              fontSize: "16px",
+                              color: "#7a3b06"
+                            }}>
                               {item.cantidad}
                             </span>
                             <button
@@ -1040,7 +1469,7 @@ export default function Pedidos() {
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
-                                padding: "4px",
+                                padding: "6px",
                                 border: "none",
                                 borderRadius: "4px",
                                 cursor: "pointer",
@@ -1048,10 +1477,10 @@ export default function Pedidos() {
                                 color: "white"
                               }}
                             >
-                              <PlusCircle size={14} />
+                              <PlusCircle size={16} />
                             </button>
                           </div>
-                          <div style={{ flex: 1, textAlign: "right", fontWeight: "600", color: "#28a745" }}>
+                          <div style={{ flex: 1, textAlign: "right", fontWeight: "600", color: "#28a745", fontSize: "16px" }}>
                             {new Intl.NumberFormat('es-BO', { 
                               style: 'currency', 
                               currency: 'BOB' 
@@ -1064,7 +1493,7 @@ export default function Pedidos() {
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
-                                padding: "6px",
+                                padding: "8px",
                                 border: "none",
                                 borderRadius: "4px",
                                 cursor: "pointer",
@@ -1072,7 +1501,7 @@ export default function Pedidos() {
                                 color: "white"
                               }}
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size={16} />
                             </button>
                           </div>
                         </div>
@@ -1088,8 +1517,8 @@ export default function Pedidos() {
                       border: "1px solid #c3e6cb",
                       borderTop: "none"
                     }}>
-                      <span style={{ fontWeight: "600", color: "#155724" }}>Total:</span>
-                      <span style={{ fontWeight: "700", color: "#155724", fontSize: "18px" }}>
+                      <span style={{ fontWeight: "600", color: "#155724", fontSize: "16px" }}>Total:</span>
+                      <span style={{ fontWeight: "700", color: "#155724", fontSize: "20px" }}>
                         {new Intl.NumberFormat('es-BO', { 
                           style: 'currency', 
                           currency: 'BOB' 
@@ -1099,7 +1528,7 @@ export default function Pedidos() {
                   </div>
                 )}
 
-                <div style={{ display: "flex", gap: "12px", marginTop: "20px" }}>
+                <div style={{ display: "flex", gap: "12px", marginTop: "20px", flexWrap: "wrap" }}>
                   <button 
                     onClick={() => guardarProductosPedido(editingId)}
                     disabled={productosSeleccionados.length === 0}
@@ -1119,13 +1548,11 @@ export default function Pedidos() {
                     }}
                   >
                     <Save size={16} />
-                    Guardar Productos
+                    Guardar Cambios
                   </button>
+                  
                   <button 
-                    onClick={() => {
-                      setProductosSeleccionados([]);
-                      setShowProductosForm(false);
-                    }}
+                    onClick={cancelarEdicionProductos}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -1142,6 +1569,18 @@ export default function Pedidos() {
                   >
                     Cancelar
                   </button>
+                </div>
+
+                <div style={{
+                  marginTop: "15px",
+                  padding: "12px",
+                  backgroundColor: "#fff3cd",
+                  borderRadius: "6px",
+                  border: "1px solid #ffeaa7"
+                }}>
+                  <div style={{ fontSize: "12px", color: "#856404", textAlign: "center" }}>
+                    <strong>Gestión de productos:</strong> Puedes modificar cantidades, eliminar productos o agregar nuevos productos al pedido.
+                  </div>
                 </div>
               </div>
             </div>
@@ -1174,6 +1613,7 @@ export default function Pedidos() {
                     <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "left" }}>ID</th>
                     <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "left" }}>Mesa</th>
                     <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "left" }}>Empleado</th>
+                    <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "left" }}>Estado</th>
                     <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "left" }}>Productos</th>
                     <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "right" }}>Total</th>
                     <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "center" }}>Acciones</th>
@@ -1201,6 +1641,24 @@ export default function Pedidos() {
                         </td>
                         <td style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611" }}>
                           {getEmpleadoNombre(pedido.ci)}
+                        </td>
+                        <td style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611" }}>
+                          <select
+                            value={pedido.estado || 'pendiente'}
+                            onChange={(e) => cambiarEstadoPedido(pedido.id_pedido, e.target.value)}
+                            style={{
+                              padding: "6px 10px",
+                              border: "1px solid #e9d8b5",
+                              borderRadius: "6px",
+                              fontSize: "14px",
+                              cursor: "pointer",
+                              ...getEstadoPedidoStyles(pedido.estado)
+                            }}
+                          >
+                            <option value="pendiente">⏳ Pendiente</option>
+                            <option value="pagado">✅ Pagado</option>
+                            <option value="cancelado">❌ Cancelado</option>
+                          </select>
                         </td>
                         <td style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611" }}>
                           <div style={{ maxWidth: "200px" }}>
@@ -1250,10 +1708,7 @@ export default function Pedidos() {
                               <Eye size={14} />
                             </button>
                             <button
-                              onClick={() => {
-                                setEditingId(pedido.id_pedido);
-                                setShowProductosForm(true);
-                              }}
+                              onClick={() => editarPedido(pedido)}
                               style={{
                                 display: "flex",
                                 alignItems: "center",
@@ -1265,9 +1720,26 @@ export default function Pedidos() {
                                 backgroundColor: "#ffc107",
                                 color: "#7a3b06"
                               }}
-                              title="Agregar productos"
+                              title="Editar pedido"
                             >
-                              <PlusCircle size={14} />
+                              <Edit size={14} />
+                            </button>
+                            <button
+                              onClick={() => gestionarProductosPedido(pedido)}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                padding: "6px 8px",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                backgroundColor: "#28a745",
+                                color: "white"
+                              }}
+                              title="Gestionar productos"
+                            >
+                              <RefreshCw size={14} />
                             </button>
                             <button
                               onClick={() => eliminarPedido(pedido.id_pedido)}
