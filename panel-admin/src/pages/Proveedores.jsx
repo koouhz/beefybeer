@@ -1421,6 +1421,7 @@ export default function Proveedores() {
                     value={contactoForm.nombre_contacto}
                     onChange={(e) => setContactoForm({...contactoForm, nombre_contacto: e.target.value})}
                     placeholder="Nombre completo"
+                    required
                     style={{
                       width: "100%",
                       padding: "8px",
@@ -1429,6 +1430,11 @@ export default function Proveedores() {
                       fontSize: "14px"
                     }}
                   />
+                  {!contactoForm.nombre_contacto.trim() && (
+                    <div style={{ color: "#dc3545", fontSize: "12px", marginTop: "4px" }}>
+                      El nombre es obligatorio
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label style={{ display: "block", marginBottom: "6px", color: "#6d4611", fontWeight: "500", fontSize: "12px" }}>
@@ -1448,6 +1454,11 @@ export default function Proveedores() {
                       fontSize: "14px"
                     }}
                   />
+                  {!contactoForm.cargo.trim() && (
+                    <div style={{ color: "#dc3545", fontSize: "12px", marginTop: "4px" }}>
+                      El cargo es obligatorio
+                    </div>
+                  )}
                 </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
@@ -1469,6 +1480,11 @@ export default function Proveedores() {
                       fontSize: "14px"
                     }}
                   />
+                  {!contactoForm.telefono.trim() && (
+                    <div style={{ color: "#dc3545", fontSize: "12px", marginTop: "4px" }}>
+                      El teléfono es obligatorio
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label style={{ display: "block", marginBottom: "6px", color: "#6d4611", fontWeight: "500", fontSize: "12px" }}>
@@ -1502,7 +1518,7 @@ export default function Proveedores() {
               </div>
               <button
                 onClick={agregarContactoProveedor}
-                disabled={!contactoForm.nombre_contacto || !contactoForm.cargo || !contactoForm.telefono || actionLoading === 'agregar-contacto'}
+                disabled={!contactoForm.nombre_contacto.trim() || !contactoForm.cargo.trim() || !contactoForm.telefono.trim() || actionLoading === 'agregar-contacto'}
                 style={{
                   display: "flex",
                   alignItems: "center",
