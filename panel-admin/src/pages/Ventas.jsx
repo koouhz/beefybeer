@@ -1,6 +1,7 @@
 // src/pages/Ventas.jsx
 import { useState, useEffect } from "react";
 import { supabase } from "../bd/supabaseClient";
+import { InventarioService } from "../services/inventarioService";
 import { 
   Edit, 
   Trash2, 
@@ -22,7 +23,8 @@ import {
   Loader,
   RefreshCw,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Package
 } from "lucide-react";
 
 export default function Ventas() {
@@ -139,6 +141,92 @@ export default function Ventas() {
     }
   };
 
+  // OBTENER PRODUCTOS DE UN PEDIDO
+  const getProductosDelPedido = (idPedido) => {
+    return pedidoProductos.filter(pp => pp.id_pedido === idPedido);
+  };
+
+  // ACTUALIZAR STOCK AL CREAR VENTA
+  const actualizarStockVenta = async (idPedido, accion = 'crear') => {
+    try {
+      const productosPedido = getProductosDelPedido(idPedido);
+      
+      if (productosPedido.length === 0) {
+        throw new Error("El pedido no tiene productos para actualizar stock");
+      }
+
+      // Convertir productos al formato esperado por el servicio
+      const movimientos = productosPedido.map(producto => ({
+        id_producto: producto.id_producto,
+        cantidad: -producto.cantidad, // Negativo porque es salida
+        producto: productos.find(p => p.id_producto === producto.id_producto)
+      }));
+
+      // Actualizar stock usando el servicio
+      const resultado = await InventarioService.actualizarStockMultiple(
+        movimientos,
+        `venta_${accion}`,
+        `Venta - Pedido #${idPedido}`
+      );
+
+      return resultado;
+    } catch (error) {
+      console.error('Error actualizando stock:', error);
+      throw error;
+    }
+  };
+
+  // REVERTIR STOCK AL ELIMINAR VENTA
+  const revertirStockVenta = async (idPedido) => {
+    try {
+      const productosPedido = getProductosDelPedido(idPedido);
+      
+      if (productosPedido.length === 0) {
+        return; // No hay productos que revertir
+      }
+
+      // Revertir significa sumar el stock (cantidades positivas)
+      const movimientos = productosPedido.map(producto => ({
+        id_producto: producto.id_producto,
+        cantidad: producto.cantidad, // Positivo porque es entrada (reversión)
+        producto: productos.find(p => p.id_producto === producto.id_producto)
+      }));
+
+      const resultado = await InventarioService.actualizarStockMultiple(
+        movimientos,
+        'venta_reversion',
+        `Reversión Venta - Pedido #${idPedido}`
+      );
+
+      return resultado;
+    } catch (error) {
+      console.error('Error revirtiendo stock:', error);
+      throw error;
+    }
+  };
+
+  // VERIFICAR STOCK ANTES DE CREAR VENTA
+  const verificarStockDisponible = async (idPedido) => {
+    try {
+      const productosPedido = getProductosDelPedido(idPedido);
+      
+      if (productosPedido.length === 0) {
+        return { todosDisponibles: true, verificaciones: [] };
+      }
+
+      const productosRequeridos = productosPedido.map(p => ({
+        id_producto: p.id_producto,
+        cantidad: p.cantidad
+      }));
+
+      const resultado = await InventarioService.verificarDisponibilidad(productosRequeridos);
+      return resultado;
+    } catch (error) {
+      console.error('Error verificando stock:', error);
+      throw error;
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setActionLoading('guardar');
@@ -151,6 +239,23 @@ export default function Ventas() {
       };
 
       validateVenta(ventaData);
+
+      // VERIFICAR STOCK ANTES DE PROCEDER
+      if (!editingId) {
+        const verificacionStock = await verificarStockDisponible(ventaData.id_pedido);
+        
+        if (!verificacionStock.todosDisponibles) {
+          const productosSinStock = verificacionStock.productosSinStock
+            .map(p => {
+              const producto = productos.find(prod => prod.id_producto === p.id_producto);
+              const nombreProducto = producto ? producto.nombre : `Producto #${p.id_producto}`;
+              return `${nombreProducto}: Requerido ${p.cantidad_requerida}, Stock ${p.stock_actual}`;
+            })
+            .join('\n');
+          
+          throw new Error(`Stock insuficiente para los siguientes productos:\n${productosSinStock}`);
+        }
+      }
 
       let result;
       if (editingId) {
@@ -166,6 +271,11 @@ export default function Ventas() {
       
       if (result.error) throw result.error;
 
+      // ACTUALIZAR STOCK SOLO PARA NUEVAS VENTAS
+      if (!editingId) {
+        await actualizarStockVenta(ventaData.id_pedido, 'crear');
+      }
+
       showMessage(`Venta ${editingId ? 'actualizada' : 'creada'} exitosamente`, "success");
       resetForm();
       cargarDatos();
@@ -177,17 +287,27 @@ export default function Ventas() {
   };
 
   const eliminarVenta = async (id) => {
-    if (!window.confirm('¿Estás seguro de eliminar esta venta? Esta acción no se puede deshacer.')) {
+    if (!window.confirm('¿Estás seguro de eliminar esta venta? Esta acción revertirá el stock de productos.')) {
       return;
     }
 
     setActionLoading(`delete-${id}`);
     
     try {
+      // Obtener la venta para saber el pedido asociado
+      const venta = ventas.find(v => v.id_venta === id);
+      if (!venta) {
+        throw new Error("Venta no encontrada");
+      }
+
+      // REVERTIR STOCK PRIMERO
+      await revertirStockVenta(venta.id_pedido);
+
+      // LUEGO ELIMINAR LA VENTA
       const { error } = await supabase.from('ventas').delete().eq('id_venta', id);
       if (error) throw error;
       
-      showMessage("Venta eliminada exitosamente", "success");
+      showMessage("Venta eliminada exitosamente. Stock revertido.", "success");
       cargarDatos();
     } catch (error) {
       showMessage(`Error al eliminar venta: ${error.message}`);
@@ -246,6 +366,12 @@ export default function Ventas() {
     return pedidoProductos.filter(pp => pp.id_pedido === id_pedido).length;
   };
 
+  // CALCULAR MONTO TOTAL REAL DEL PEDIDO
+  const calcularMontoRealPedido = (id_pedido) => {
+    const productosPedido = pedidoProductos.filter(pp => pp.id_pedido === id_pedido);
+    return productosPedido.reduce((total, pp) => total + pp.subtotal, 0);
+  };
+
   // FILTRADO MEJORADO
   const filteredVentas = ventas.filter(venta => {
     const matchesSearch = 
@@ -293,7 +419,11 @@ export default function Ventas() {
       const anioActual = new Date().getFullYear();
       const fechaVenta = new Date(v.fecha);
       return fechaVenta.getMonth() === mesActual && fechaVenta.getFullYear() === anioActual;
-    }).reduce((sum, venta) => sum + (venta.monto_total || 0), 0)
+    }).reduce((sum, venta) => sum + (venta.monto_total || 0), 0),
+    productosVendidos: ventas.reduce((total, venta) => {
+      const productosVenta = getProductosDelPedido(venta.id_pedido);
+      return total + productosVenta.reduce((sum, p) => sum + p.cantidad, 0);
+    }, 0)
   };
 
   // EXPORTAR DATOS
@@ -304,7 +434,9 @@ export default function Ventas() {
       Pedido: venta.id_pedido,
       Descripción: venta.descripcion || '',
       'Monto Total': `Bs ${venta.monto_total.toFixed(2)}`,
-      'Detalle Pedido': getPedidoDetalle(venta.id_pedido)
+      'Detalle Pedido': getPedidoDetalle(venta.id_pedido),
+      'Empleado': getEmpleadoPedido(venta.id_pedido),
+      'Productos': getDetalleProductos(venta.id_pedido)
     }));
 
     const csvContent = [
@@ -393,7 +525,7 @@ export default function Ventas() {
           color: "#721c24"
         }}>
           <AlertTriangle size={20} />
-          <span>{error}</span>
+          <span style={{ whiteSpace: 'pre-line' }}>{error}</span>
           <button 
             onClick={() => setError("")} 
             style={{
@@ -486,6 +618,14 @@ export default function Ventas() {
             color: "#e0f2f1", 
             iconColor: "#00796b",
             format: "number"
+          },
+          { 
+            label: "Productos Vendidos", 
+            value: estadisticas.productosVendidos, 
+            icon: Package, 
+            color: "#fff0f5", 
+            iconColor: "#c2185b",
+            format: "number"
           }
         ].map((stat, index) => (
           <div key={index} style={{
@@ -515,7 +655,7 @@ export default function Ventas() {
                   new Intl.NumberFormat('es-BO', { 
                     style: 'currency', 
                     currency: 'BOB' 
-                  }).format(stat.value) : stat.value}
+                  }).format(stat.value) : stat.value.toLocaleString()}
               </div>
               <div style={{
                 fontSize: "12px",
@@ -959,7 +1099,16 @@ export default function Ventas() {
                 </label>
                 <select
                   value={form.id_pedido}
-                  onChange={(e) => setForm({...form, id_pedido: e.target.value})}
+                  onChange={(e) => {
+                    const pedidoSeleccionado = e.target.value;
+                    setForm({...form, id_pedido: pedidoSeleccionado});
+                    
+                    // Calcular monto automáticamente cuando se selecciona un pedido
+                    if (pedidoSeleccionado && !editingId) {
+                      const montoReal = calcularMontoRealPedido(parseInt(pedidoSeleccionado));
+                      setForm(prev => ({...prev, monto_total: montoReal.toString()}));
+                    }
+                  }}
                   required
                   style={{
                     width: "100%",
@@ -974,7 +1123,7 @@ export default function Ventas() {
                     .filter(pedido => !ventas.find(v => v.id_pedido === pedido.id_pedido && v.id_venta !== editingId))
                     .map(pedido => (
                     <option key={pedido.id_pedido} value={pedido.id_pedido}>
-                      Pedido #{pedido.id_pedido} - Mesa {pedido.nromesa || 'N/A'}
+                      Pedido #{pedido.id_pedido} - Mesa {pedido.nromesa || 'N/A'} - Bs {calcularMontoRealPedido(pedido.id_pedido).toFixed(2)}
                     </option>
                   ))}
                 </select>

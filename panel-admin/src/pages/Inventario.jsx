@@ -19,21 +19,30 @@ import {
   Download,
   Filter,
   Calendar,
-  Eye
+  Eye,
+  ShoppingCart,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  RotateCcw,
+  Zap
 } from "lucide-react";
 
 export default function Inventario() {
   const [inventario, setInventario] = useState([]);
   const [productos, setProductos] = useState([]);
   const [categorias, setCategorias] = useState([]);
+  const [pedidos, setPedidos] = useState([]);
+  const [ventas, setVentas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   
   const [showForm, setShowForm] = useState(false);
+  const [showProductForm, setShowProductForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [viewMode, setViewMode] = useState("lista");
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
+  const [actionType, setActionType] = useState("entrada"); // "entrada" o "salida"
 
   const [form, setForm] = useState({
     id_producto: '',
@@ -43,6 +52,14 @@ export default function Inventario() {
     salidas: 0,
     stock_minimo: 0,
     stock_maximo: 0
+  });
+
+  const [productForm, setProductForm] = useState({
+    nombre: '',
+    descripcion: '',
+    precio: '',
+    fecha_vencimiento: '',
+    id_categoriaproducto: ''
   });
 
   // Estados para búsqueda y filtros
@@ -67,7 +84,7 @@ export default function Inventario() {
   const cargarDatos = async () => {
     try {
       setLoading(true);
-      const [inventarioRes, productosRes, categoriasRes] = await Promise.all([
+      const [inventarioRes, productosRes, categoriasRes, pedidosRes, ventasRes] = await Promise.all([
         supabase.from('inventario').select(`
           *,
           productos (
@@ -90,16 +107,36 @@ export default function Inventario() {
             tipo
           )
         `),
-        supabase.from('categoria_productos').select('*')
+        supabase.from('categoria_productos').select('*'),
+        supabase.from('pedidos').select(`
+          *,
+          pedido_producto (
+            id_producto,
+            cantidad
+          )
+        `),
+        supabase.from('ventas').select(`
+          *,
+          pedidos (
+            pedido_producto (
+              id_producto,
+              cantidad
+            )
+          )
+        `)
       ]);
 
       if (inventarioRes.error) throw inventarioRes.error;
       if (productosRes.error) throw productosRes.error;
       if (categoriasRes.error) throw categoriasRes.error;
+      if (pedidosRes.error) console.warn('Error cargando pedidos:', pedidosRes.error);
+      if (ventasRes.error) console.warn('Error cargando ventas:', ventasRes.error);
 
       setInventario(inventarioRes.data || []);
       setProductos(productosRes.data || []);
       setCategorias(categoriasRes.data || []);
+      setPedidos(pedidosRes.data || []);
+      setVentas(ventasRes.data || []);
     } catch (error) {
       showMessage(`Error al cargar datos: ${error.message}`);
     } finally {
@@ -110,8 +147,8 @@ export default function Inventario() {
   // Cálculo FIFO - Stock disponible actual
   const calcularStockDisponible = (idProducto) => {
     const movimientos = inventario.filter(item => item.id_producto === idProducto);
-    const totalEntradas = movimientos.reduce((sum, item) => sum + item.entradas, 0);
-    const totalSalidas = movimientos.reduce((sum, item) => sum + item.salidas, 0);
+    const totalEntradas = movimientos.reduce((sum, item) => sum + (item.entradas || 0), 0);
+    const totalSalidas = movimientos.reduce((sum, item) => sum + (item.salidas || 0), 0);
     return totalEntradas - totalSalidas;
   };
 
@@ -123,11 +160,40 @@ export default function Inventario() {
     
     if (movimientos.length > 0) {
       return {
-        stock_minimo: movimientos[0].stock_minimo,
-        stock_maximo: movimientos[0].stock_maximo
+        stock_minimo: movimientos[0].stock_minimo || 0,
+        stock_maximo: movimientos[0].stock_maximo || 0
       };
     }
     return { stock_minimo: 0, stock_maximo: 0 };
+  };
+
+  // Calcular ventas del día para un producto
+  const calcularVentasHoy = (idProducto) => {
+    const hoy = new Date().toISOString().split('T')[0];
+    
+    return ventas.reduce((total, venta) => {
+      const fechaVenta = new Date(venta.fecha).toISOString().split('T')[0];
+      if (fechaVenta === hoy && venta.pedidos && venta.pedidos.pedido_producto) {
+        const productoEnVenta = venta.pedidos.pedido_producto.find(pp => pp.id_producto === idProducto);
+        if (productoEnVenta) {
+          return total + productoEnVenta.cantidad;
+        }
+      }
+      return total;
+    }, 0);
+  };
+
+  // Calcular total de ventas del producto
+  const calcularTotalVentas = (idProducto) => {
+    return ventas.reduce((total, venta) => {
+      if (venta.pedidos && venta.pedidos.pedido_producto) {
+        const productoEnVenta = venta.pedidos.pedido_producto.find(pp => pp.id_producto === idProducto);
+        if (productoEnVenta) {
+          return total + productoEnVenta.cantidad;
+        }
+      }
+      return total;
+    }, 0);
   };
 
   // Validaciones mejoradas
@@ -162,6 +228,12 @@ export default function Inventario() {
     if (stockMaximo > 0 && stockMinimo > stockMaximo) {
       throw new Error("El stock mínimo no puede ser mayor al stock máximo");
     }
+  };
+
+  const validateProducto = (producto) => {
+    if (!producto.nombre.trim()) throw new Error("El nombre del producto es requerido");
+    if (!producto.precio || parseFloat(producto.precio) <= 0) throw new Error("El precio debe ser mayor a 0");
+    if (!producto.id_categoriaproducto) throw new Error("Debe seleccionar una categoría");
   };
 
   const handleSubmit = async (e) => {
@@ -206,6 +278,52 @@ export default function Inventario() {
     }
   };
 
+  const handleProductSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      validateProducto(productForm);
+
+      const productoData = {
+        nombre: productForm.nombre.trim(),
+        descripcion: productForm.descripcion.trim() || null,
+        precio: parseFloat(productForm.precio),
+        fecha_vencimiento: productForm.fecha_vencimiento || null,
+        id_categoriaproducto: parseInt(productForm.id_categoriaproducto)
+      };
+
+      const { data, error } = await supabase
+        .from('productos')
+        .insert([productoData])
+        .select();
+
+      if (error) throw error;
+
+      // Crear registro inicial en inventario automáticamente
+      if (data && data[0]) {
+        const inventarioInicial = {
+          id_producto: data[0].id_producto,
+          fecha: new Date().toISOString().split('T')[0],
+          observaciones: 'Registro inicial de producto',
+          entradas: 0,
+          salidas: 0,
+          cantidad_actual: 0,
+          stock_minimo: 10,
+          stock_maximo: 100
+        };
+
+        await supabase
+          .from('inventario')
+          .insert([inventarioInicial]);
+      }
+
+      showMessage("Producto creado y agregado al inventario exitosamente", "success");
+      resetProductForm();
+      cargarDatos();
+    } catch (error) {
+      showMessage(error.message);
+    }
+  };
+
   // Función para agregar producto al inventario (primer registro)
   const agregarAlInventario = (producto) => {
     setForm({
@@ -214,27 +332,69 @@ export default function Inventario() {
       observaciones: 'Primer registro en inventario',
       entradas: 0,
       salidas: 0,
-      stock_minimo: 0,
-      stock_maximo: 0
+      stock_minimo: 10,
+      stock_maximo: 100
     });
     setEditingId(null);
     setShowForm(true);
+    setActionType("entrada");
   };
 
-  // Función para gestionar stock de producto existente
-  const gestionarStock = (producto) => {
-    const configuracion = obtenerConfiguracionStock(producto.id_producto);
-    setForm({
-      id_producto: producto.id_producto.toString(),
-      fecha: new Date().toISOString().split('T')[0],
-      observaciones: '',
-      entradas: 0,
-      salidas: 0,
-      stock_minimo: configuracion.stock_minimo,
-      stock_maximo: configuracion.stock_maximo
-    });
-    setEditingId(null);
-    setShowForm(true);
+  // Función para gestión rápida de stock
+  const gestionRapidaStock = async (producto, tipo, cantidad = 1) => {
+    try {
+      const stockActual = calcularStockDisponible(producto.id_producto);
+      const configuracion = obtenerConfiguracionStock(producto.id_producto);
+      
+      if (tipo === "salida" && cantidad > stockActual) {
+        throw new Error(`No hay suficiente stock. Disponible: ${stockActual}`);
+      }
+
+      const inventarioData = {
+        id_producto: producto.id_producto,
+        fecha: new Date().toISOString().split('T')[0],
+        observaciones: `${tipo === "entrada" ? "Entrada" : "Salida"} rápida de stock`,
+        entradas: tipo === "entrada" ? cantidad : 0,
+        salidas: tipo === "salida" ? cantidad : 0,
+        cantidad_actual: tipo === "entrada" ? stockActual + cantidad : stockActual - cantidad,
+        stock_minimo: configuracion.stock_minimo,
+        stock_maximo: configuracion.stock_maximo
+      };
+
+      const { error } = await supabase
+        .from('inventario')
+        .insert([inventarioData]);
+
+      if (error) throw error;
+
+      showMessage(`${tipo === "entrada" ? "Entrada" : "Salida"} de stock registrada exitosamente`, "success");
+      cargarDatos();
+    } catch (error) {
+      showMessage(error.message);
+    }
+  };
+
+  // Función para descontar stock por venta
+  const descontarStockVenta = async (idPedido) => {
+    try {
+      const { data: pedidoProductos, error } = await supabase
+        .from('pedido_producto')
+        .select('*')
+        .eq('id_pedido', idPedido);
+
+      if (error) throw error;
+
+      for (const item of pedidoProductos) {
+        const producto = productos.find(p => p.id_producto === item.id_producto);
+        if (producto) {
+          await gestionRapidaStock(producto, "salida", item.cantidad);
+        }
+      }
+
+      showMessage("Stock descontado por venta exitosamente", "success");
+    } catch (error) {
+      showMessage(`Error descontando stock: ${error.message}`);
+    }
   };
 
   const editarRegistro = (item) => {
@@ -284,6 +444,18 @@ export default function Inventario() {
     });
     setEditingId(null);
     setShowForm(false);
+    setActionType("entrada");
+  };
+
+  const resetProductForm = () => {
+    setProductForm({
+      nombre: '',
+      descripcion: '',
+      precio: '',
+      fecha_vencimiento: '',
+      id_categoriaproducto: ''
+    });
+    setShowProductForm(false);
   };
 
   // Función para exportar a Excel
@@ -291,6 +463,8 @@ export default function Inventario() {
     const datosExportar = productos.map(producto => {
       const stockActual = calcularStockDisponible(producto.id_producto);
       const configuracion = obtenerConfiguracionStock(producto.id_producto);
+      const ventasHoy = calcularVentasHoy(producto.id_producto);
+      const totalVentas = calcularTotalVentas(producto.id_producto);
       
       return {
         'Producto': producto.nombre || 'N/A',
@@ -298,6 +472,8 @@ export default function Inventario() {
         'Stock Actual': stockActual,
         'Stock Mínimo': configuracion.stock_minimo,
         'Stock Máximo': configuracion.stock_maximo,
+        'Ventas Hoy': ventasHoy,
+        'Total Ventas': totalVentas,
         'Precio': producto.precio,
         'Estado': stockActual <= configuracion.stock_minimo ? 'STOCK BAJO' : 
                   (configuracion.stock_maximo > 0 && stockActual > configuracion.stock_maximo) ? 'STOCK ALTO' : 'NORMAL',
@@ -339,7 +515,8 @@ export default function Inventario() {
       (filtroStock === "bajo" && stockActual <= configuracion.stock_minimo) ||
       (filtroStock === "normal" && stockActual > configuracion.stock_minimo && 
        (configuracion.stock_maximo === 0 || stockActual <= configuracion.stock_maximo)) ||
-      (filtroStock === "alto" && configuracion.stock_maximo > 0 && stockActual > configuracion.stock_maximo);
+      (filtroStock === "alto" && configuracion.stock_maximo > 0 && stockActual > configuracion.stock_maximo) ||
+      (filtroStock === "sin-inventario" && !inventario.some(i => i.id_producto === producto.id_producto));
 
     return matchesSearch && matchesCategoria && matchesStock;
   });
@@ -356,7 +533,10 @@ export default function Inventario() {
     productosSinInventario: productos.filter(p => !inventario.some(i => i.id_producto === p.id_producto)).length,
     valorTotalInventario: productos.reduce((total, producto) => {
       const stock = calcularStockDisponible(producto.id_producto);
-      return total + (stock * producto.precio);
+      return total + (stock * (producto.precio || 0));
+    }, 0),
+    ventasHoy: productos.reduce((total, producto) => {
+      return total + calcularVentasHoy(producto.id_producto);
     }, 0)
   };
 
@@ -439,7 +619,7 @@ export default function Inventario() {
                       {new Intl.NumberFormat('es-BO', { 
                         style: 'currency', 
                         currency: 'BOB' 
-                      }).format(productoSeleccionado.precio)}
+                      }).format(productoSeleccionado.precio || 0)}
                     </span>
                   </div>
                   <div style={styles.infoItem}>
@@ -449,6 +629,18 @@ export default function Inventario() {
                       ...(calcularStockDisponible(productoSeleccionado.id_producto) <= 0 ? styles.stockCero : {})
                     }}>
                       {calcularStockDisponible(productoSeleccionado.id_producto)} unidades
+                    </span>
+                  </div>
+                  <div style={styles.infoItem}>
+                    <label style={styles.infoLabel}>Ventas Hoy</label>
+                    <span style={styles.infoValue}>
+                      {calcularVentasHoy(productoSeleccionado.id_producto)} unidades
+                    </span>
+                  </div>
+                  <div style={styles.infoItem}>
+                    <label style={styles.infoLabel}>Total Ventas</label>
+                    <span style={styles.infoValue}>
+                      {calcularTotalVentas(productoSeleccionado.id_producto)} unidades
                     </span>
                   </div>
                 </div>
@@ -606,6 +798,15 @@ export default function Inventario() {
                 <div style={styles.statLabel}>Valor Total</div>
               </div>
             </div>
+            <div style={styles.statCard}>
+              <div style={{...styles.statIcon, ...styles.statIconVentas}}>
+                <ShoppingCart size={24} />
+              </div>
+              <div style={styles.statInfo}>
+                <div style={styles.statValue}>{estadisticas.ventasHoy}</div>
+                <div style={styles.statLabel}>Ventas Hoy</div>
+              </div>
+            </div>
           </div>
 
           {/* Alertas importantes */}
@@ -635,13 +836,107 @@ export default function Inventario() {
               <Plus size={16} />
               Nuevo Movimiento
             </button>
+            <button onClick={() => setShowProductForm(true)} style={{...styles.btn, ...styles.btnSuccess}}>
+              <Package size={16} />
+              Agregar Producto
+            </button>
             <button onClick={exportarAExcel} style={{...styles.btn, ...styles.btnSecondary}}>
               <Download size={16} />
               Exportar a Excel
             </button>
+            <button onClick={cargarDatos} style={{...styles.btn, ...styles.btnInfo}}>
+              <RotateCcw size={16} />
+              Actualizar
+            </button>
           </div>
 
-          {/* Formulario modal */}
+          {/* Formulario de Producto */}
+          {showProductForm && (
+            <div style={styles.modalOverlay}>
+              <div style={styles.modal}>
+                <h3 style={styles.modalTitle}>Agregar Nuevo Producto</h3>
+                <form onSubmit={handleProductSubmit}>
+                  <div style={styles.formRow}>
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Nombre del Producto *</label>
+                      <input
+                        type="text"
+                        value={productForm.nombre}
+                        onChange={(e) => setProductForm({...productForm, nombre: e.target.value})}
+                        required
+                        style={styles.formInput}
+                        placeholder="Ej: Hamburguesa Clásica"
+                      />
+                    </div>
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Precio (BOB) *</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={productForm.precio}
+                        onChange={(e) => setProductForm({...productForm, precio: e.target.value})}
+                        required
+                        style={styles.formInput}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+
+                  <div style={styles.formRow}>
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Categoría *</label>
+                      <select
+                        value={productForm.id_categoriaproducto}
+                        onChange={(e) => setProductForm({...productForm, id_categoriaproducto: e.target.value})}
+                        required
+                        style={styles.formSelect}
+                      >
+                        <option value="">Seleccionar categoría</option>
+                        {categorias.map(categoria => (
+                          <option key={categoria.id_categoriaproducto} value={categoria.id_categoriaproducto}>
+                            {categoria.nombre} ({categoria.tipo})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Fecha de Vencimiento</label>
+                      <input
+                        type="date"
+                        value={productForm.fecha_vencimiento}
+                        onChange={(e) => setProductForm({...productForm, fecha_vencimiento: e.target.value})}
+                        style={styles.formInput}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.formLabel}>Descripción</label>
+                    <textarea
+                      value={productForm.descripcion}
+                      onChange={(e) => setProductForm({...productForm, descripcion: e.target.value})}
+                      placeholder="Descripción del producto..."
+                      rows="3"
+                      style={styles.formTextarea}
+                    />
+                  </div>
+
+                  <div style={styles.formActions}>
+                    <button type="submit" style={{...styles.btn, ...styles.btnSuccess}}>
+                      <Save size={16} />
+                      Crear Producto
+                    </button>
+                    <button type="button" onClick={resetProductForm} style={{...styles.btn, ...styles.btnCancel}}>
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Formulario modal de inventario */}
           {showForm && (
             <div style={styles.modalOverlay}>
               <div style={styles.modal}>
@@ -779,6 +1074,7 @@ export default function Inventario() {
                     <th style={styles.th}>Stock Actual</th>
                     <th style={styles.th}>Stock Mínimo</th>
                     <th style={styles.th}>Stock Máximo</th>
+                    <th style={styles.th}>Ventas Hoy</th>
                     <th style={styles.th}>Estado</th>
                     <th style={styles.th}>Acciones</th>
                   </tr>
@@ -788,6 +1084,7 @@ export default function Inventario() {
                     const stockActual = calcularStockDisponible(producto.id_producto);
                     const configuracion = obtenerConfiguracionStock(producto.id_producto);
                     const enInventario = inventario.some(item => item.id_producto === producto.id_producto);
+                    const ventasHoy = calcularVentasHoy(producto.id_producto);
                     
                     let estado = "normal";
                     let estadoLabel = "Normal";
@@ -824,6 +1121,11 @@ export default function Inventario() {
                         <td style={styles.td}>{configuracion.stock_minimo}</td>
                         <td style={styles.td}>{configuracion.stock_maximo}</td>
                         <td style={styles.td}>
+                          <span style={{color: ventasHoy > 0 ? '#28a745' : '#6c757d'}}>
+                            {ventasHoy}
+                          </span>
+                        </td>
+                        <td style={styles.td}>
                           <span style={{
                             ...styles.estadoBadge,
                             backgroundColor: estado === 'bajo' ? '#fff5f5' : 
@@ -845,17 +1147,27 @@ export default function Inventario() {
                               <Eye size={14} />
                             </button>
                             {enInventario ? (
-                              <button
-                                onClick={() => gestionarStock(producto)}
-                                style={{...styles.btnSmall, ...styles.btnEdit}}
-                                title="Gestionar stock"
-                              >
-                                <Edit size={14} />
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => gestionRapidaStock(producto, "entrada", 1)}
+                                  style={{...styles.btnSmall, ...styles.btnSuccess}}
+                                  title="Entrada rápida"
+                                >
+                                  <ArrowDownToLine size={14} />
+                                </button>
+                                <button
+                                  onClick={() => gestionRapidaStock(producto, "salida", 1)}
+                                  style={{...styles.btnSmall, ...styles.btnWarning}}
+                                  title="Salida rápida"
+                                  disabled={stockActual <= 0}
+                                >
+                                  <ArrowUpFromLine size={14} />
+                                </button>
+                              </>
                             ) : (
                               <button
                                 onClick={() => agregarAlInventario(producto)}
-                                style={{...styles.btnSmall, ...styles.btnSuccess}}
+                                style={{...styles.btnSmall, ...styles.btnInfo}}
                                 title="Agregar al inventario"
                               >
                                 <Plus size={14} />
@@ -1125,6 +1437,10 @@ const styles = {
     background: "#f3e5f5",
     color: "#9c27b0"
   },
+  statIconVentas: {
+    background: "#e8f5e8",
+    color: "#28a745"
+  },
   statInfo: {
     flex: "1"
   },
@@ -1172,6 +1488,10 @@ const styles = {
   },
   btnCancel: {
     backgroundColor: "#6c757d",
+    color: "white"
+  },
+  btnInfo: {
+    backgroundColor: "#17a2b8",
     color: "white"
   },
   modalOverlay: {
@@ -1346,6 +1666,14 @@ const styles = {
   },
   btnSuccess: {
     backgroundColor: "#28a745",
+    color: "white"
+  },
+  btnWarning: {
+    backgroundColor: "#ffc107",
+    color: "#7a3b06"
+  },
+  btnInfo: {
+    backgroundColor: "#17a2b8",
     color: "white"
   },
   btnDanger: {
