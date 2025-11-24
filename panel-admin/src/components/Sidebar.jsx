@@ -14,20 +14,20 @@ export default function Sidebar({ onLogout, empleado }) {
   const [isOpen, setIsOpen] = useState(false);
   const [showRoleInfo, setShowRoleInfo] = useState(false);
 
-  // Definición de permisos por rol
+  // Definición de permisos por rol - SOLO ADMINISTRADOR VE EL DASHBOARD
   const rolePermissions = {
     administrador: [
       "Panel principal", "Roles y cargos", "Sueldos", "Personal", 
       "Inventario", "Productos", "Mesas", "Pedidos", "Ventas", "Proveedores", "Gastos"
     ],
     cajero: [
-      "Panel principal", "Ventas", "Gastos"
+      "Ventas", "Gastos"
     ],
     mesero: [
-      "Panel principal", "Mesas", "Pedidos"
+      "Mesas", "Pedidos"
     ],
     usuario: [
-      "Panel principal"
+      // Usuario no ve nada
     ]
   };
 
@@ -44,13 +44,13 @@ export default function Sidebar({ onLogout, empleado }) {
     return () => window.removeEventListener("resize", checkScreenSize);
   }, []);
 
-  // Items del menú con permisos - QUITADO RECETAS Y AGREGADO PRODUCTOS
+  // Items del menú con permisos - SOLO ADMINISTRADOR VE EL DASHBOARD
   const menuItems = [
     { 
       label: "Panel principal", 
       icon: Home, 
       path: "/",
-      roles: ["administrador", "cajero", "mesero", "usuario"],
+      roles: ["administrador"], // SOLO ADMINISTRADOR
       description: "Dashboard y estadísticas"
     },
     { 
@@ -160,6 +160,20 @@ export default function Sidebar({ onLogout, empleado }) {
   const filteredItems = menuItems.filter(item => 
     item.roles.includes(empleadoRol)
   );
+
+  // Redirigir si el usuario no es administrador y está en el dashboard
+  useEffect(() => {
+    if (location.pathname === "/" && empleadoRol !== "administrador") {
+      // Redirigir al primer módulo disponible para su rol
+      const primerModulo = filteredItems[0];
+      if (primerModulo) {
+        navigate(primerModulo.path);
+      } else {
+        // Si no tiene ningún módulo, redirigir a una página de acceso denegado
+        navigate("/acceso-denegado");
+      }
+    }
+  }, [location.pathname, empleadoRol, filteredItems, navigate]);
 
   const handleLogout = () => {
     if (window.confirm("¿Estás seguro de que deseas cerrar sesión?")) {
@@ -372,6 +386,12 @@ export default function Sidebar({ onLogout, empleado }) {
                     {permiso}
                   </li>
                 ))}
+                {rolePermissions[empleadoRol]?.length === 0 && (
+                  <li style={sidebarStyles.permissionItem}>
+                    <div style={sidebarStyles.permissionDot}></div>
+                    Sin permisos asignados
+                  </li>
+                )}
               </ul>
             </div>
           )}
@@ -384,7 +404,7 @@ export default function Sidebar({ onLogout, empleado }) {
               <AlertCircle size={32} style={sidebarStyles.noPermissionsIcon} />
               <p style={sidebarStyles.noPermissionsTitle}>Sin permisos</p>
               <p style={sidebarStyles.noPermissionsDescription}>
-                Tu rol de usuario no tiene acceso a las funciones del sistema.
+                Tu rol de {empleadoRol} no tiene acceso a las funciones del sistema.
               </p>
             </div>
           ) : (
