@@ -46,8 +46,6 @@ export default function Proveedores() {
     ci_proveedor: '',
     nombre_empresa: '',
     contacto_principal: '',
-    telefono: '',
-    email: '',
     descripcion: '',
     ruta_entrega: '',
     estado: 'activo'
@@ -138,14 +136,6 @@ export default function Proveedores() {
       errors.push("El contacto principal debe tener al menos 2 caracteres");
     }
 
-    if (proveedorData.telefono && !/^[\d\s\-\+\(\)]{7,15}$/.test(proveedorData.telefono)) {
-      errors.push("El formato del teléfono no es válido");
-    }
-
-    if (proveedorData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(proveedorData.email)) {
-      errors.push("El formato del email no es válido");
-    }
-
     if (!proveedorData.descripcion || proveedorData.descripcion.trim().length < 10) {
       errors.push("La descripción es obligatoria y debe tener al menos 10 caracteres");
     }
@@ -164,8 +154,6 @@ export default function Proveedores() {
         ci_proveedor: form.ci_proveedor.trim(),
         nombre_empresa: form.nombre_empresa.trim(),
         contacto_principal: form.contacto_principal.trim(),
-        telefono: form.telefono.trim() || null,
-        email: form.email.trim() || null,
         descripcion: form.descripcion.trim(),
         ruta_entrega: form.ruta_entrega.trim() || null,
         estado: form.estado
@@ -376,8 +364,6 @@ export default function Proveedores() {
       ci_proveedor: '',
       nombre_empresa: '',
       contacto_principal: '',
-      telefono: '',
-      email: '',
       descripcion: '',
       ruta_entrega: '',
       estado: 'activo'
@@ -409,10 +395,8 @@ export default function Proveedores() {
       proveedor.ci_proveedor.toLowerCase().includes(searchTerm.toLowerCase()) ||
       proveedor.nombre_empresa.toLowerCase().includes(searchTerm.toLowerCase()) ||
       proveedor.contacto_principal.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      proveedor.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      proveedor.telefono?.includes(searchTerm) ||
-      proveedor.ruta_entrega?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      proveedor.descripcion?.toLowerCase().includes(searchTerm.toLowerCase());
+      proveedor.descripcion?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      proveedor.ruta_entrega?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesEstado = filtroEstado === "todos" || proveedor.estado === filtroEstado;
 
@@ -422,7 +406,6 @@ export default function Proveedores() {
   const estadisticas = {
     totalProveedores: proveedores.length,
     proveedoresActivos: proveedores.filter(p => p.estado === 'activo').length,
-    proveedoresConEmail: proveedores.filter(p => p.email).length,
     totalProductosAsociados: proveedoresProductos.length
   };
 
@@ -562,13 +545,6 @@ export default function Proveedores() {
             iconColor: "#28a745"
           },
           { 
-            label: "Con Email", 
-            value: estadisticas.proveedoresConEmail, 
-            icon: Mail, 
-            color: "#f3e5f5", 
-            iconColor: "#7b1fa2"
-          },
-          { 
             label: "Productos Asoc.", 
             value: estadisticas.totalProductosAsociados, 
             icon: Package, 
@@ -630,7 +606,7 @@ export default function Proveedores() {
             }} />
             <input
               type="text"
-              placeholder="Buscar por CI/NIT, empresa, contacto, email, teléfono o ruta..."
+              placeholder="Buscar por CI/NIT, empresa, contacto o descripción..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{
@@ -770,18 +746,6 @@ export default function Proveedores() {
                     </td>
                     <td style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                        {proveedor.telefono && (
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
-                            <Phone size={12} />
-                            {proveedor.telefono}
-                          </div>
-                        )}
-                        {proveedor.email && (
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
-                            <Mail size={12} />
-                            {proveedor.email}
-                          </div>
-                        )}
                         {proveedor.ruta_entrega && (
                           <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
                             <Truck size={12} />
@@ -843,8 +807,6 @@ export default function Proveedores() {
                               ci_proveedor: proveedor.ci_proveedor || '',
                               nombre_empresa: proveedor.nombre_empresa || '',
                               contacto_principal: proveedor.contacto_principal || '',
-                              telefono: proveedor.telefono || '',
-                              email: proveedor.email || '',
                               descripcion: proveedor.descripcion || '',
                               ruta_entrega: proveedor.ruta_entrega || '',
                               estado: proveedor.estado || 'activo'
@@ -1066,58 +1028,6 @@ export default function Proveedores() {
                     fontSize: "14px"
                   }}
                 />
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" }}>
-                <div>
-                  <label style={{
-                    display: "block",
-                    marginBottom: "6px",
-                    color: "#6d4611",
-                    fontWeight: "500",
-                    fontSize: "12px"
-                  }}>
-                    Teléfono
-                  </label>
-                  <input
-                    type="tel"
-                    value={form.telefono}
-                    onChange={(e) => setForm({...form, telefono: e.target.value})}
-                    placeholder="+591 XXX XXX"
-                    pattern="[\d\s\-\+\(\)]{7,15}"
-                    style={{
-                      width: "100%",
-                      padding: "10px",
-                      border: "1px solid #e9d8b5",
-                      borderRadius: "6px",
-                      fontSize: "14px"
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{
-                    display: "block",
-                    marginBottom: "6px",
-                    color: "#6d4611",
-                    fontWeight: "500",
-                    fontSize: "12px"
-                  }}>
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => setForm({...form, email: e.target.value})}
-                    placeholder="proveedor@empresa.com"
-                    style={{
-                      width: "100%",
-                      padding: "10px",
-                      border: "1px solid #e9d8b5",
-                      borderRadius: "6px",
-                      fontSize: "14px"
-                    }}
-                  />
-                </div>
               </div>
 
               <div style={{ marginBottom: "16px" }}>
