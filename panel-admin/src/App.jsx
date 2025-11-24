@@ -12,7 +12,7 @@ import Mesas from "./pages/Mesas";
 import Pedidos from "./pages/Pedidos";
 import Ventas from "./pages/Ventas";
 import Proveedores from "./pages/Proveedores";
-import Recetas from "./pages/Recetas";
+import Productos from "./pages/Productos";
 import Gastos from "./pages/Gastos";
 
 function App() {
@@ -68,7 +68,7 @@ function App() {
             <Route path="pedidos" element={<Pedidos />} />
             <Route path="ventas" element={<Ventas />} />
             <Route path="proveedores" element={<Proveedores />} />
-            <Route path="recetas" element={<Recetas />} />
+            <Route path="productos" element={<Productos />} />
             <Route path="gastos" element={<Gastos />} />
           </Route>
         </Routes>

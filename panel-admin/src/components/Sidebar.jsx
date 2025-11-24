@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { 
   Home, Shield, DollarSign, Users, Package, 
   UtensilsCrossed, Receipt, ShoppingCart, Truck, 
-  BookOpen, Wallet, Menu, X, LogOut, Eye, EyeOff,
+  Wallet, Menu, X, LogOut, Eye, EyeOff,
   UserCheck, AlertCircle, Settings
 } from "lucide-react";
 
@@ -14,14 +14,11 @@ export default function Sidebar({ onLogout, empleado }) {
   const [isOpen, setIsOpen] = useState(false);
   const [showRoleInfo, setShowRoleInfo] = useState(false);
 
-  console.log('Datos COMPLETOS del empleado en Sidebar:', empleado); // Para debug detallado
-
   // Definición de permisos por rol
   const rolePermissions = {
     administrador: [
       "Panel principal", "Roles y cargos", "Sueldos", "Personal", 
-      "Inventario", "Mesas", "Pedidos", "Ventas", "Proveedores", 
-      "Recetas", "Gastos"
+      "Inventario", "Productos", "Mesas", "Pedidos", "Ventas", "Proveedores", "Gastos"
     ],
     cajero: [
       "Panel principal", "Ventas", "Gastos"
@@ -47,7 +44,7 @@ export default function Sidebar({ onLogout, empleado }) {
     return () => window.removeEventListener("resize", checkScreenSize);
   }, []);
 
-  // Items del menú con permisos
+  // Items del menú con permisos - QUITADO RECETAS Y AGREGADO PRODUCTOS
   const menuItems = [
     { 
       label: "Panel principal", 
@@ -85,6 +82,13 @@ export default function Sidebar({ onLogout, empleado }) {
       description: "Control de stock y productos"
     },
     { 
+      label: "Productos", 
+      icon: ShoppingCart, 
+      path: "/productos",
+      roles: ["administrador"],
+      description: "Gestión de productos del menú"
+    },
+    { 
       label: "Mesas", 
       icon: UtensilsCrossed, 
       path: "/mesas",
@@ -113,13 +117,6 @@ export default function Sidebar({ onLogout, empleado }) {
       description: "Gestión de proveedores"
     },
     { 
-      label: "Recetas", 
-      icon: BookOpen, 
-      path: "/recetas",
-      roles: ["administrador"],
-      description: "Libro de recetas y preparaciones"
-    },
-    { 
       label: "Gastos", 
       icon: Wallet, 
       path: "/gastos",
@@ -128,25 +125,21 @@ export default function Sidebar({ onLogout, empleado }) {
     },
   ];
 
-  // Función para obtener el rol del empleado - MEJORADA
+  // Función para obtener el rol del empleado
   const getEmpleadoRol = () => {
     if (!empleado) return "usuario";
     
-    console.log('Estructura completa del empleado:', JSON.stringify(empleado, null, 2));
-    
     // 1. Si viene con join de roles (roles: { nombre: 'administrador' })
     if (empleado.roles && empleado.roles.nombre) {
-      console.log('Rol detectado por empleado.roles.nombre:', empleado.roles.nombre);
       return empleado.roles.nombre.toLowerCase();
     }
     
     // 2. Si viene el campo rol directo
     if (empleado.rol) {
-      console.log('Rol detectado por empleado.rol:', empleado.rol);
       return empleado.rol.toLowerCase();
     }
     
-    // 3. Si viene id_rol (ESTE ES EL CASO MÁS PROBABLE)
+    // 3. Si viene id_rol
     if (empleado.id_rol) {
       const rolMap = {
         1: "administrador",
@@ -154,13 +147,10 @@ export default function Sidebar({ onLogout, empleado }) {
         3: "mesero",
         4: "usuario"
       };
-      const rol = rolMap[empleado.id_rol] || "usuario";
-      console.log('Rol detectado por id_rol:', empleado.id_rol, '->', rol);
-      return rol;
+      return rolMap[empleado.id_rol] || "usuario";
     }
     
     // 4. Si no se encuentra nada
-    console.log('No se pudo detectar el rol, usando "usuario" por defecto');
     return "usuario";
   };
 
@@ -170,9 +160,6 @@ export default function Sidebar({ onLogout, empleado }) {
   const filteredItems = menuItems.filter(item => 
     item.roles.includes(empleadoRol)
   );
-
-  console.log('Rol final detectado:', empleadoRol);
-  console.log('Items filtrados para este rol:', filteredItems.map(item => item.label));
 
   const handleLogout = () => {
     if (window.confirm("¿Estás seguro de que deseas cerrar sesión?")) {
@@ -356,7 +343,7 @@ export default function Sidebar({ onLogout, empleado }) {
                     ...sidebarStyles.userRoleBadge,
                     backgroundColor: getRoleColor(empleadoRol)
                   }}
-                  title={`Rol: ${empleadoRol} (ID: ${empleado.id_rol || 'N/A'})`}
+                  title={`Rol: ${empleadoRol}`}
                 >
                   {getRoleBadge(empleadoRol)}
                 </span>
@@ -386,9 +373,6 @@ export default function Sidebar({ onLogout, empleado }) {
                   </li>
                 ))}
               </ul>
-              <div style={sidebarStyles.debugInfo}>
-                <small>ID Rol: {empleado.id_rol || 'No disponible'}</small>
-              </div>
             </div>
           )}
         </div>
@@ -586,14 +570,6 @@ const sidebarStyles = {
     borderRadius: "50%",
     background: "#28a745",
     flexShrink: 0
-  },
-  debugInfo: {
-    marginTop: "10px",
-    paddingTop: "10px",
-    borderTop: "1px solid rgba(122, 59, 6, 0.1)",
-    fontSize: "10px",
-    color: "#6d4611",
-    opacity: 0.7
   },
   sidebarNav: {
     flex: 1,

@@ -16,8 +16,6 @@ import {
   AlertCircle,
   CheckCircle2,
   BarChart3,
-  ShoppingCart,
-  Upload,
   Download,
   Filter,
   Calendar,
@@ -43,7 +41,6 @@ export default function Inventario() {
     observaciones: '',
     entradas: 0,
     salidas: 0,
-    cantidad_actual: 0,
     stock_minimo: 0,
     stock_maximo: 0
   });
@@ -52,8 +49,6 @@ export default function Inventario() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filtroCategoria, setFiltroCategoria] = useState("todos");
   const [filtroStock, setFiltroStock] = useState("todos");
-  const [fechaDesde, setFechaDesde] = useState("");
-  const [fechaHasta, setFechaHasta] = useState("");
 
   useEffect(() => {
     cargarDatos();
@@ -112,41 +107,61 @@ export default function Inventario() {
     }
   };
 
-  // Validaciones
+  // Cálculo FIFO - Stock disponible actual
+  const calcularStockDisponible = (idProducto) => {
+    const movimientos = inventario.filter(item => item.id_producto === idProducto);
+    const totalEntradas = movimientos.reduce((sum, item) => sum + item.entradas, 0);
+    const totalSalidas = movimientos.reduce((sum, item) => sum + item.salidas, 0);
+    return totalEntradas - totalSalidas;
+  };
+
+  // Obtener stock mínimo y máximo del último registro
+  const obtenerConfiguracionStock = (idProducto) => {
+    const movimientos = inventario
+      .filter(item => item.id_producto === idProducto)
+      .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    
+    if (movimientos.length > 0) {
+      return {
+        stock_minimo: movimientos[0].stock_minimo,
+        stock_maximo: movimientos[0].stock_maximo
+      };
+    }
+    return { stock_minimo: 0, stock_maximo: 0 };
+  };
+
+  // Validaciones mejoradas
   const validateInventario = (item) => {
     if (!item.id_producto) throw new Error("Debe seleccionar un producto");
     if (!item.fecha) throw new Error("La fecha es requerida");
     
-    if (parseInt(item.entradas) < 0) throw new Error("Las entradas no pueden ser negativas");
-    if (parseInt(item.salidas) < 0) throw new Error("Las salidas no pueden ser negativas");
-    if (parseInt(item.cantidad_actual) < 0) throw new Error("El stock actual no puede ser negativo");
-    if (parseInt(item.stock_minimo) < 0) throw new Error("El stock mínimo no puede ser negativo");
-    if (parseInt(item.stock_maximo) < 0) throw new Error("El stock máximo no puede ser negativo");
+    const entradas = parseInt(item.entradas) || 0;
+    const salidas = parseInt(item.salidas) || 0;
     
-    if (parseInt(item.stock_maximo) > 0 && parseInt(item.stock_minimo) >= parseInt(item.stock_maximo)) {
-      throw new Error("El stock mínimo debe ser menor al stock máximo");
+    if (entradas < 0) throw new Error("Las entradas no pueden ser negativas");
+    if (salidas < 0) throw new Error("Las salidas no pueden ser negativas");
+    
+    if (entradas === 0 && salidas === 0) {
+      throw new Error("Debe registrar al menos una entrada o salida");
     }
 
-    // Validar que las salidas no excedan el stock disponible
-    const producto = productos.find(p => p.id_producto === parseInt(item.id_producto));
-    if (producto) {
-      const stockActual = calcularStockActual(producto.id_producto);
-      if (parseInt(item.salidas) > stockActual + parseInt(item.entradas)) {
-        throw new Error(`Las salidas (${item.salidas}) exceden el stock disponible (${stockActual + parseInt(item.entradas)})`);
+    // Validar que no se vendan más productos de los que hay en stock
+    if (salidas > 0) {
+      const stockDisponible = calcularStockDisponible(parseInt(item.id_producto));
+      if (salidas > stockDisponible) {
+        throw new Error(`No hay suficiente stock. Disponible: ${stockDisponible}, Intentas vender: ${salidas}`);
       }
     }
-  };
 
-  // Calcular stock actual para un producto
-  const calcularStockActual = (idProducto) => {
-    const movimientos = inventario.filter(item => item.id_producto === idProducto);
-    return movimientos.reduce((total, item) => total + item.entradas - item.salidas, 0);
-  };
-
-  // Calcular stock proyectado (después del movimiento)
-  const calcularStockProyectado = (idProducto, nuevasEntradas, nuevasSalidas) => {
-    const stockActual = calcularStockActual(idProducto);
-    return stockActual + nuevasEntradas - nuevasSalidas;
+    // Validar stock mínimo y máximo
+    const stockMinimo = parseInt(item.stock_minimo) || 0;
+    const stockMaximo = parseInt(item.stock_maximo) || 0;
+    
+    if (stockMinimo < 0) throw new Error("El stock mínimo no puede ser negativo");
+    if (stockMaximo < 0) throw new Error("El stock máximo no puede ser negativo");
+    if (stockMaximo > 0 && stockMinimo > stockMaximo) {
+      throw new Error("El stock mínimo no puede ser mayor al stock máximo");
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -154,14 +169,19 @@ export default function Inventario() {
     try {
       validateInventario(form);
       
+      const entradas = parseInt(form.entradas) || 0;
+      const salidas = parseInt(form.salidas) || 0;
+      const stockActual = calcularStockDisponible(parseInt(form.id_producto)) + entradas - salidas;
+
       const inventarioData = {
-        ...form,
-        entradas: parseInt(form.entradas),
-        salidas: parseInt(form.salidas),
-        cantidad_actual: parseInt(form.cantidad_actual),
-        stock_minimo: parseInt(form.stock_minimo),
-        stock_maximo: parseInt(form.stock_maximo),
-        fecha: form.fecha || new Date().toISOString().split('T')[0]
+        id_producto: parseInt(form.id_producto),
+        fecha: form.fecha || new Date().toISOString().split('T')[0],
+        observaciones: form.observaciones || null,
+        entradas: entradas,
+        salidas: salidas,
+        cantidad_actual: stockActual,
+        stock_minimo: parseInt(form.stock_minimo) || 0,
+        stock_maximo: parseInt(form.stock_maximo) || 0
       };
 
       if (editingId) {
@@ -186,14 +206,44 @@ export default function Inventario() {
     }
   };
 
+  // Función para agregar producto al inventario (primer registro)
+  const agregarAlInventario = (producto) => {
+    setForm({
+      id_producto: producto.id_producto.toString(),
+      fecha: new Date().toISOString().split('T')[0],
+      observaciones: 'Primer registro en inventario',
+      entradas: 0,
+      salidas: 0,
+      stock_minimo: 0,
+      stock_maximo: 0
+    });
+    setEditingId(null);
+    setShowForm(true);
+  };
+
+  // Función para gestionar stock de producto existente
+  const gestionarStock = (producto) => {
+    const configuracion = obtenerConfiguracionStock(producto.id_producto);
+    setForm({
+      id_producto: producto.id_producto.toString(),
+      fecha: new Date().toISOString().split('T')[0],
+      observaciones: '',
+      entradas: 0,
+      salidas: 0,
+      stock_minimo: configuracion.stock_minimo,
+      stock_maximo: configuracion.stock_maximo
+    });
+    setEditingId(null);
+    setShowForm(true);
+  };
+
   const editarRegistro = (item) => {
     setForm({
-      id_producto: item.id_producto,
+      id_producto: item.id_producto.toString(),
       fecha: item.fecha,
       observaciones: item.observaciones || '',
       entradas: item.entradas,
       salidas: item.salidas,
-      cantidad_actual: item.cantidad_actual || 0,
       stock_minimo: item.stock_minimo,
       stock_maximo: item.stock_maximo
     });
@@ -229,7 +279,6 @@ export default function Inventario() {
       observaciones: '',
       entradas: 0,
       salidas: 0,
-      cantidad_actual: 0,
       stock_minimo: 0,
       stock_maximo: 0
     });
@@ -237,53 +286,79 @@ export default function Inventario() {
     setShowForm(false);
   };
 
-  // Filtros y cálculos avanzados
-  const filteredInventario = inventario.filter(item => {
-    const producto = item.productos;
-    if (!producto) return false;
+  // Función para exportar a Excel
+  const exportarAExcel = () => {
+    const datosExportar = productos.map(producto => {
+      const stockActual = calcularStockDisponible(producto.id_producto);
+      const configuracion = obtenerConfiguracionStock(producto.id_producto);
+      
+      return {
+        'Producto': producto.nombre || 'N/A',
+        'Categoría': producto.categoria_productos?.nombre || 'N/A',
+        'Stock Actual': stockActual,
+        'Stock Mínimo': configuracion.stock_minimo,
+        'Stock Máximo': configuracion.stock_maximo,
+        'Precio': producto.precio,
+        'Estado': stockActual <= configuracion.stock_minimo ? 'STOCK BAJO' : 
+                  (configuracion.stock_maximo > 0 && stockActual > configuracion.stock_maximo) ? 'STOCK ALTO' : 'NORMAL',
+        'En Inventario': inventario.some(item => item.id_producto === producto.id_producto) ? 'SÍ' : 'NO'
+      };
+    });
 
+    // Crear CSV
+    const headers = Object.keys(datosExportar[0] || {}).join(',');
+    const csvData = datosExportar.map(row => 
+      Object.values(row).map(value => `"${value}"`).join(',')
+    ).join('\n');
+    
+    const csv = `${headers}\n${csvData}`;
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `inventario_completo_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    window.URL.revokeObjectURL(url);
+    
+    showMessage("Datos exportados exitosamente", "success");
+  };
+
+  // Filtros para productos
+  const filteredProductos = productos.filter(producto => {
     const matchesSearch = 
       producto.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (producto.descripcion && producto.descripcion.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      item.observaciones.toLowerCase().includes(searchTerm.toLowerCase());
+      (producto.descripcion && producto.descripcion.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const matchesCategoria = filtroCategoria === "todos" || 
       producto.categoria_productos?.id_categoriaproducto.toString() === filtroCategoria;
 
+    const stockActual = calcularStockDisponible(producto.id_producto);
+    const configuracion = obtenerConfiguracionStock(producto.id_producto);
+    
     const matchesStock = filtroStock === "todos" || 
-      (filtroStock === "bajo" && item.cantidad_actual <= item.stock_minimo) ||
-      (filtroStock === "optimo" && item.cantidad_actual > item.stock_minimo && item.cantidad_actual <= item.stock_maximo) ||
-      (filtroStock === "exceso" && item.cantidad_actual > item.stock_maximo);
+      (filtroStock === "bajo" && stockActual <= configuracion.stock_minimo) ||
+      (filtroStock === "normal" && stockActual > configuracion.stock_minimo && 
+       (configuracion.stock_maximo === 0 || stockActual <= configuracion.stock_maximo)) ||
+      (filtroStock === "alto" && configuracion.stock_maximo > 0 && stockActual > configuracion.stock_maximo);
 
-    const matchesFecha = (!fechaDesde || item.fecha >= fechaDesde) && 
-                        (!fechaHasta || item.fecha <= fechaHasta);
-
-    return matchesSearch && matchesCategoria && matchesStock && matchesFecha;
+    return matchesSearch && matchesCategoria && matchesStock;
   });
 
-  // Estadísticas avanzadas
+  // Estadísticas
   const estadisticas = {
-    totalProductos: [...new Set(inventario.map(item => item.id_producto))].length,
-    totalMovimientos: filteredInventario.length,
-    stockBajo: inventario.filter(item => item.cantidad_actual <= item.stock_minimo).length,
-    stockOptimo: inventario.filter(item => item.cantidad_actual > item.stock_minimo && item.cantidad_actual <= item.stock_maximo).length,
-    stockExceso: inventario.filter(item => item.cantidad_actual > item.stock_maximo).length,
-    valorTotalInventario: inventario.reduce((total, item) => {
-      const producto = item.productos;
-      return total + (item.cantidad_actual * (producto?.precio || 0));
-    }, 0),
-    entradasTotales: filteredInventario.reduce((total, item) => total + item.entradas, 0),
-    salidasTotales: filteredInventario.reduce((total, item) => total + item.salidas, 0)
+    totalProductos: productos.length,
+    productosEnInventario: productos.filter(p => inventario.some(i => i.id_producto === p.id_producto)).length,
+    productosConStockBajo: productos.filter(producto => {
+      const stock = calcularStockDisponible(producto.id_producto);
+      const configuracion = obtenerConfiguracionStock(producto.id_producto);
+      return stock <= configuracion.stock_minimo;
+    }).length,
+    productosSinInventario: productos.filter(p => !inventario.some(i => i.id_producto === p.id_producto)).length,
+    valorTotalInventario: productos.reduce((total, producto) => {
+      const stock = calcularStockDisponible(producto.id_producto);
+      return total + (stock * producto.precio);
+    }, 0)
   };
-
-  // Productos próximos a vencer (si hay fecha de vencimiento)
-  const productosProximosVencer = productos.filter(producto => {
-    if (!producto.fecha_vencimiento) return false;
-    const fechaVencimiento = new Date(producto.fecha_vencimiento);
-    const hoy = new Date();
-    const diferenciaDias = Math.ceil((fechaVencimiento - hoy) / (1000 * 60 * 60 * 24));
-    return diferenciaDias <= 30 && diferenciaDias > 0;
-  });
 
   // Obtener historial de un producto
   const getHistorialProducto = (idProducto) => {
@@ -294,37 +369,37 @@ export default function Inventario() {
 
   if (loading) {
     return (
-      <div className="loading-container">
-        <Loader size={32} className="spinner" />
+      <div style={styles.loadingContainer}>
+        <Loader size={32} style={{ animation: "spin 1s linear infinite" }} />
         <p>Cargando inventario...</p>
       </div>
     );
   }
 
   return (
-    <div className="container">
+    <div style={styles.container}>
       {/* Header */}
-      <header className="page-header">
-        <h1>Gestión de Inventario</h1>
-        <p>Control y seguimiento completo del stock de productos</p>
+      <header style={styles.pageHeader}>
+        <h1 style={styles.pageHeaderH1}>Gestión de Inventario</h1>
+        <p style={styles.pageHeaderP}>Control y seguimiento completo del stock de productos</p>
       </header>
 
       {/* Alertas */}
       {error && (
-        <div className="alert error">
+        <div style={{...styles.alert, ...styles.alertError}}>
           <AlertTriangle size={20} />
           <span>{error}</span>
-          <button onClick={() => setError("")} className="alert-close">
+          <button onClick={() => setError("")} style={styles.alertClose}>
             <X size={16} />
           </button>
         </div>
       )}
 
       {success && (
-        <div className="alert success">
+        <div style={{...styles.alert, ...styles.alertSuccess}}>
           <CheckCircle size={20} />
           <span>{success}</span>
-          <button onClick={() => setSuccess("")} className="alert-close">
+          <button onClick={() => setSuccess("")} style={styles.alertClose}>
             <X size={16} />
           </button>
         </div>
@@ -332,99 +407,103 @@ export default function Inventario() {
 
       {/* Vista de Detalle de Producto */}
       {viewMode === "detalle" && productoSeleccionado && (
-        <div className="detalle-producto">
-          <div className="detalle-header">
+        <div style={styles.detalleProducto}>
+          <div style={styles.detalleHeader}>
             <button 
               onClick={() => setViewMode("lista")}
-              className="btn btn-secondary"
+              style={{...styles.btn, ...styles.btnSecondary}}
             >
               ← Volver al inventario
             </button>
-            <h2>Detalle del Producto</h2>
+            <h2 style={styles.detalleTitle}>Detalle del Producto</h2>
           </div>
           
-          <div className="detalle-content">
-            <div className="detalle-card">
-              <div className="producto-info">
-                <h3>{productoSeleccionado.nombre}</h3>
-                <p className="descripcion">{productoSeleccionado.descripcion}</p>
+          <div style={styles.detalleContent}>
+            <div style={styles.detalleCard}>
+              <div style={styles.productoInfo}>
+                <h3 style={styles.productoNombre}>{productoSeleccionado.nombre}</h3>
+                <p style={styles.descripcion}>{productoSeleccionado.descripcion}</p>
                 
-                <div className="info-grid">
-                  <div className="info-item">
-                    <label>Categoría</label>
-                    <span>{productoSeleccionado.categoria_productos?.nombre || 'N/A'}</span>
+                <div style={styles.infoGrid}>
+                  <div style={styles.infoItem}>
+                    <label style={styles.infoLabel}>Categoría</label>
+                    <span style={styles.infoValue}>{productoSeleccionado.categoria_productos?.nombre || 'N/A'}</span>
                   </div>
-                  <div className="info-item">
-                    <label>Tipo</label>
-                    <span>{productoSeleccionado.categoria_productos?.tipo || 'N/A'}</span>
+                  <div style={styles.infoItem}>
+                    <label style={styles.infoLabel}>Tipo</label>
+                    <span style={styles.infoValue}>{productoSeleccionado.categoria_productos?.tipo || 'N/A'}</span>
                   </div>
-                  <div className="info-item">
-                    <label>Precio</label>
-                    <span className="precio">
+                  <div style={styles.infoItem}>
+                    <label style={styles.infoLabel}>Precio</label>
+                    <span style={{...styles.infoValue, ...styles.precio}}>
                       {new Intl.NumberFormat('es-BO', { 
                         style: 'currency', 
                         currency: 'BOB' 
                       }).format(productoSeleccionado.precio)}
                     </span>
                   </div>
-                  {productoSeleccionado.fecha_vencimiento && (
-                    <div className="info-item">
-                      <label>Vencimiento</label>
-                      <span className={new Date(productoSeleccionado.fecha_vencimiento) < new Date() ? 'vencido' : 'vigente'}>
-                        {new Date(productoSeleccionado.fecha_vencimiento).toLocaleDateString()}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="stock-info">
-                <h4>Estado de Stock</h4>
-                <div className="stock-stats">
-                  <div className="stat">
-                    <span className="value">{calcularStockActual(productoSeleccionado.id_producto)}</span>
-                    <span className="label">Stock Actual</span>
-                  </div>
-                  <div className="stat">
-                    <span className="value">0</span>
-                    <span className="label">Stock Mínimo</span>
-                  </div>
-                  <div className="stat">
-                    <span className="value">0</span>
-                    <span className="label">Stock Máximo</span>
+                  <div style={styles.infoItem}>
+                    <label style={styles.infoLabel}>Stock Disponible</label>
+                    <span style={{
+                      ...styles.infoValue,
+                      ...(calcularStockDisponible(productoSeleccionado.id_producto) <= 0 ? styles.stockCero : {})
+                    }}>
+                      {calcularStockDisponible(productoSeleccionado.id_producto)} unidades
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="historial-movimientos">
-              <h4>Historial de Movimientos</h4>
-              <div className="table-container">
-                <table>
+            <div style={styles.historialMovimientos}>
+              <h4 style={styles.historialTitle}>Historial de Movimientos</h4>
+              <div style={styles.tableContainer}>
+                <table style={styles.table}>
                   <thead>
                     <tr>
-                      <th>Fecha</th>
-                      <th>Entradas</th>
-                      <th>Salidas</th>
-                      <th>Stock</th>
-                      <th>Observaciones</th>
+                      <th style={styles.th}>Fecha</th>
+                      <th style={styles.th}>Entradas</th>
+                      <th style={styles.th}>Salidas</th>
+                      <th style={styles.th}>Stock Después</th>
+                      <th style={styles.th}>Observaciones</th>
+                      <th style={styles.th}>Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {getHistorialProducto(productoSeleccionado.id_producto).map((movimiento, index) => (
+                    {getHistorialProducto(productoSeleccionado.id_producto).map((movimiento) => (
                       <tr key={movimiento.id_inventario}>
-                        <td>{movimiento.fecha}</td>
-                        <td className="entrada">{movimiento.entradas}</td>
-                        <td className="salida">{movimiento.salidas}</td>
-                        <td className="stock">
-                          {calcularStockActual(movimiento.id_producto) - 
-                           getHistorialProducto(productoSeleccionado.id_producto)
-                            .slice(0, index)
-                            .reduce((total, item) => total + item.entradas - item.salidas, 0)}
+                        <td style={styles.td}>{movimiento.fecha}</td>
+                        <td style={{...styles.td, ...styles.entrada}}>{movimiento.entradas}</td>
+                        <td style={{...styles.td, ...styles.salida}}>{movimiento.salidas}</td>
+                        <td style={styles.td}>{movimiento.cantidad_actual}</td>
+                        <td style={styles.td}>{movimiento.observaciones || '-'}</td>
+                        <td style={styles.td}>
+                          <div style={styles.actionButtonsSmall}>
+                            <button
+                              onClick={() => editarRegistro(movimiento)}
+                              style={{...styles.btnSmall, ...styles.btnEdit}}
+                              title="Editar movimiento"
+                            >
+                              <Edit size={14} />
+                            </button>
+                            <button
+                              onClick={() => eliminarRegistro(movimiento.id_inventario)}
+                              style={{...styles.btnSmall, ...styles.btnDanger}}
+                              title="Eliminar movimiento"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </td>
-                        <td>{movimiento.observaciones || '-'}</td>
                       </tr>
                     ))}
+                    {getHistorialProducto(productoSeleccionado.id_producto).length === 0 && (
+                      <tr>
+                        <td colSpan="6" style={{...styles.td, textAlign: 'center'}}>
+                          No hay movimientos registrados para este producto
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -436,270 +515,247 @@ export default function Inventario() {
       {/* Vista Principal de Inventario */}
       {viewMode === "lista" && (
         <>
-          {/* Barra de búsqueda y filtros avanzados */}
-          <div className="search-filter-bar">
-            <div className="search-box">
-              <Search size={18} />
+          {/* Barra de búsqueda y filtros */}
+          <div style={styles.searchFilterBar}>
+            <div style={styles.searchBox}>
+              <Search size={18} style={styles.searchIcon} />
               <input
                 type="text"
-                placeholder="Buscar por producto, descripción u observaciones..."
+                placeholder="Buscar productos..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="search-input"
+                style={styles.searchInput}
               />
             </div>
-            <div className="filter-group">
+            <div style={styles.filterGroup}>
               <select 
                 value={filtroCategoria}
                 onChange={(e) => setFiltroCategoria(e.target.value)}
-                className="filter-select"
+                style={styles.filterSelect}
               >
                 <option value="todos">Todas las categorías</option>
                 {categorias.map(categoria => (
                   <option key={categoria.id_categoriaproducto} value={categoria.id_categoriaproducto}>
-                    {categoria.nombre} ({categoria.tipo})
+                    {categoria.nombre}
                   </option>
                 ))}
               </select>
               <select 
                 value={filtroStock}
                 onChange={(e) => setFiltroStock(e.target.value)}
-                className="filter-select"
+                style={styles.filterSelect}
               >
                 <option value="todos">Todo el stock</option>
                 <option value="bajo">Stock Bajo</option>
-                <option value="optimo">Stock Óptimo</option>
-                <option value="exceso">Stock en Exceso</option>
+                <option value="normal">Stock Normal</option>
+                <option value="alto">Stock Alto</option>
+                <option value="sin-inventario">Sin Inventario</option>
               </select>
-              <div className="date-filters">
-                <input
-                  type="date"
-                  value={fechaDesde}
-                  onChange={(e) => setFechaDesde(e.target.value)}
-                  placeholder="Desde"
-                  className="date-input"
-                />
-                <input
-                  type="date"
-                  value={fechaHasta}
-                  onChange={(e) => setFechaHasta(e.target.value)}
-                  placeholder="Hasta"
-                  className="date-input"
-                />
-              </div>
             </div>
           </div>
 
           {/* Dashboard de Estadísticas */}
-          <div className="stats-grid">
-            <div className="stat-card">
-              <div className="stat-icon total">
+          <div style={styles.statsGrid}>
+            <div style={styles.statCard}>
+              <div style={{...styles.statIcon, ...styles.statIconTotal}}>
                 <Package size={24} />
               </div>
-              <div className="stat-info">
-                <div className="stat-value">{estadisticas.totalProductos}</div>
-                <div className="stat-label">Productos</div>
+              <div style={styles.statInfo}>
+                <div style={styles.statValue}>{estadisticas.totalProductos}</div>
+                <div style={styles.statLabel}>Total Productos</div>
               </div>
             </div>
-            <div className="stat-card">
-              <div className="stat-icon movimientos">
-                <BarChart3 size={24} />
+            <div style={styles.statCard}>
+              <div style={{...styles.statIcon, ...styles.statIconSuccess}}>
+                <CheckCircle2 size={24} />
               </div>
-              <div className="stat-info">
-                <div className="stat-value">{estadisticas.totalMovimientos}</div>
-                <div className="stat-label">Movimientos</div>
+              <div style={styles.statInfo}>
+                <div style={styles.statValue}>{estadisticas.productosEnInventario}</div>
+                <div style={styles.statLabel}>En Inventario</div>
               </div>
             </div>
-            <div className="stat-card">
-              <div className="stat-icon valor">
+            <div style={styles.statCard}>
+              <div style={{...styles.statIcon, ...styles.statIconAlert}}>
+                <AlertCircle size={24} />
+              </div>
+              <div style={styles.statInfo}>
+                <div style={styles.statValue}>{estadisticas.productosConStockBajo}</div>
+                <div style={styles.statLabel}>Stock Bajo</div>
+              </div>
+            </div>
+            <div style={styles.statCard}>
+              <div style={{...styles.statIcon, ...styles.statIconWarning}}>
+                <AlertTriangle size={24} />
+              </div>
+              <div style={styles.statInfo}>
+                <div style={styles.statValue}>{estadisticas.productosSinInventario}</div>
+                <div style={styles.statLabel}>Sin Inventario</div>
+              </div>
+            </div>
+            <div style={styles.statCard}>
+              <div style={{...styles.statIcon, ...styles.statIconValor}}>
                 <TrendingUp size={24} />
               </div>
-              <div className="stat-info">
-                <div className="stat-value">
+              <div style={styles.statInfo}>
+                <div style={styles.statValue}>
                   {new Intl.NumberFormat('es-BO', { 
                     style: 'currency', 
                     currency: 'BOB' 
                   }).format(estadisticas.valorTotalInventario)}
                 </div>
-                <div className="stat-label">Valor Total</div>
-              </div>
-            </div>
-            <div className="stat-card alert">
-              <div className="stat-icon">
-                <AlertCircle size={24} />
-              </div>
-              <div className="stat-info">
-                <div className="stat-value">{estadisticas.stockBajo}</div>
-                <div className="stat-label">Stock Bajo</div>
+                <div style={styles.statLabel}>Valor Total</div>
               </div>
             </div>
           </div>
 
           {/* Alertas importantes */}
-          {estadisticas.stockBajo > 0 && (
-            <div className="alert warning">
+          {estadisticas.productosConStockBajo > 0 && (
+            <div style={{...styles.alert, ...styles.alertWarning}}>
               <AlertTriangle size={20} />
               <span>
-                <strong>Alerta:</strong> {estadisticas.stockBajo} producto(s) tienen stock bajo. 
+                <strong>Alerta:</strong> {estadisticas.productosConStockBajo} producto(s) tienen stock bajo. 
                 Es necesario realizar un reabastecimiento.
               </span>
             </div>
           )}
 
-          {productosProximosVencer.length > 0 && (
-            <div className="alert warning">
-              <Calendar size={20} />
+          {estadisticas.productosSinInventario > 0 && (
+            <div style={{...styles.alert, ...styles.alertInfo}}>
+              <AlertCircle size={20} />
               <span>
-                <strong>Atención:</strong> {productosProximosVencer.length} producto(s) están próximos a vencer.
+                <strong>Información:</strong> {estadisticas.productosSinInventario} producto(s) no tienen registro en inventario. 
+                Agregalos para comenzar a gestionar su stock.
               </span>
             </div>
           )}
 
           {/* Botones de acción */}
-          <div className="action-buttons">
-            <button onClick={() => { resetForm(); setShowForm(true); }} className="btn btn-primary">
+          <div style={styles.actionButtons}>
+            <button onClick={() => { resetForm(); setShowForm(true); }} style={{...styles.btn, ...styles.btnPrimary}}>
               <Plus size={16} />
               Nuevo Movimiento
             </button>
-            <button className="btn btn-secondary">
-              <Upload size={16} />
-              Entrada Rápida
-            </button>
-            <button className="btn btn-secondary">
+            <button onClick={exportarAExcel} style={{...styles.btn, ...styles.btnSecondary}}>
               <Download size={16} />
-              Salida Rápida
+              Exportar a Excel
             </button>
           </div>
 
           {/* Formulario modal */}
           {showForm && (
-            <div className="modal-overlay">
-              <div className="modal large">
-                <h3>{editingId ? "Editar Movimiento" : "Nuevo Movimiento de Inventario"}</h3>
+            <div style={styles.modalOverlay}>
+              <div style={styles.modal}>
+                <h3 style={styles.modalTitle}>{editingId ? "Editar Movimiento" : "Nuevo Movimiento de Inventario"}</h3>
                 <form onSubmit={handleSubmit}>
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Producto *</label>
+                  <div style={styles.formRow}>
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Producto *</label>
                       <select
                         value={form.id_producto}
-                        onChange={(e) => {
-                          const nuevoProducto = e.target.value;
-                          setForm({...form, id_producto: nuevoProducto});
-                          // Actualizar stock actual al cambiar producto
-                          if (nuevoProducto) {
-                            const stock = calcularStockActual(parseInt(nuevoProducto));
-                            setForm(prev => ({...prev, cantidad_actual: stock}));
-                          }
-                        }}
+                        onChange={(e) => setForm({...form, id_producto: e.target.value})}
                         required
+                        style={styles.formSelect}
                       >
                         <option value="">Seleccionar producto</option>
                         {productos.map(producto => (
                           <option key={producto.id_producto} value={producto.id_producto}>
-                            {producto.nombre} - {producto.categoria_productos?.nombre}
+                            {producto.nombre} - Stock: {calcularStockDisponible(producto.id_producto)}
+                            {!inventario.some(i => i.id_producto === producto.id_producto) && ' (Sin inventario)'}
                           </option>
                         ))}
                       </select>
                     </div>
-                    <div className="form-group">
-                      <label>Fecha *</label>
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Fecha *</label>
                       <input
                         type="date"
                         value={form.fecha}
                         onChange={(e) => setForm({...form, fecha: e.target.value})}
                         required
+                        style={styles.formInput}
                       />
                     </div>
                   </div>
 
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Entradas</label>
+                  <div style={styles.formRow}>
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Entradas</label>
                       <input
                         type="number"
                         value={form.entradas}
                         onChange={(e) => setForm({...form, entradas: e.target.value})}
                         min="0"
                         placeholder="0"
+                        style={styles.formInput}
                       />
                     </div>
-                    <div className="form-group">
-                      <label>Salidas</label>
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Salidas</label>
                       <input
                         type="number"
                         value={form.salidas}
                         onChange={(e) => setForm({...form, salidas: e.target.value})}
                         min="0"
                         placeholder="0"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Stock Actual</label>
-                      <input
-                        type="number"
-                        value={form.cantidad_actual}
-                        onChange={(e) => setForm({...form, cantidad_actual: e.target.value})}
-                        min="0"
-                        placeholder="0"
-                        disabled
+                        style={styles.formInput}
                       />
                     </div>
                   </div>
 
-                  {form.id_producto && (
-                    <div className="stock-proyeccion">
-                      <div className="proyeccion-info">
-                        <strong>Stock Proyectado:</strong> 
-                        {calcularStockProyectado(
-                          parseInt(form.id_producto), 
-                          parseInt(form.entradas) || 0, 
-                          parseInt(form.salidas) || 0
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Stock Mínimo</label>
+                  <div style={styles.formRow}>
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Stock Mínimo</label>
                       <input
                         type="number"
                         value={form.stock_minimo}
                         onChange={(e) => setForm({...form, stock_minimo: e.target.value})}
                         min="0"
                         placeholder="0"
+                        style={styles.formInput}
                       />
                     </div>
-                    <div className="form-group">
-                      <label>Stock Máximo</label>
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Stock Máximo</label>
                       <input
                         type="number"
                         value={form.stock_maximo}
                         onChange={(e) => setForm({...form, stock_maximo: e.target.value})}
                         min="0"
                         placeholder="0"
+                        style={styles.formInput}
                       />
                     </div>
                   </div>
 
-                  <div className="form-group">
-                    <label>Observaciones</label>
+                  {form.id_producto && (
+                    <div style={styles.stockInfo}>
+                      <div style={styles.stockItem}>
+                        <strong>Stock Actual:</strong> {calcularStockDisponible(parseInt(form.id_producto))} unidades
+                      </div>
+                      <div style={styles.stockItem}>
+                        <strong>Stock después del movimiento:</strong> 
+                        {calcularStockDisponible(parseInt(form.id_producto)) + parseInt(form.entradas || 0) - parseInt(form.salidas || 0)} unidades
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.formLabel}>Observaciones</label>
                     <textarea
                       value={form.observaciones}
                       onChange={(e) => setForm({...form, observaciones: e.target.value})}
                       placeholder="Detalles del movimiento..."
                       rows="3"
-                      maxLength={200}
+                      style={styles.formTextarea}
                     />
-                    <span className="char-count">{form.observaciones.length}/200</span>
                   </div>
 
-                  <div className="form-actions">
-                    <button type="submit" className="btn btn-success">
+                  <div style={styles.formActions}>
+                    <button type="submit" style={{...styles.btn, ...styles.btnSuccess}}>
                       <Save size={16} />
                       {editingId ? "Actualizar" : "Guardar Movimiento"}
                     </button>
-                    <button type="button" onClick={resetForm} className="btn btn-cancel">
+                    <button type="button" onClick={resetForm} style={{...styles.btn, ...styles.btnCancel}}>
                       Cancelar
                     </button>
                   </div>
@@ -709,106 +765,102 @@ export default function Inventario() {
           )}
 
           {/* Tabla de inventario */}
-          <div className="table-card">
-            <div className="table-header">
+          <div style={styles.tableCard}>
+            <div style={styles.tableHeader}>
               <Package size={20} />
-              <h2>Inventario ({filteredInventario.length})</h2>
-              <div className="table-actions">
-                <span className={`badge ${estadisticas.stockBajo > 0 ? 'badge-danger' : 'badge-success'}`}>
-                  {estadisticas.stockBajo} alertas
-                </span>
-              </div>
+              <h2 style={styles.tableTitle}>Inventario ({filteredProductos.length})</h2>
             </div>
-            <div className="table-container">
-              <table>
+            <div style={styles.tableContainer}>
+              <table style={styles.table}>
                 <thead>
                   <tr>
-                    <th>Producto</th>
-                    <th>Categoría</th>
-                    <th>Fecha</th>
-                    <th>Entradas</th>
-                    <th>Salidas</th>
-                    <th>Stock</th>
-                    <th>Estado</th>
-                    <th>Observaciones</th>
-                    <th>Acciones</th>
+                    <th style={styles.th}>Producto</th>
+                    <th style={styles.th}>Categoría</th>
+                    <th style={styles.th}>Stock Actual</th>
+                    <th style={styles.th}>Stock Mínimo</th>
+                    <th style={styles.th}>Stock Máximo</th>
+                    <th style={styles.th}>Estado</th>
+                    <th style={styles.th}>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredInventario.map(item => {
-                    const producto = item.productos;
-                    const stockActual = item.cantidad_actual;
-                    const stockMinimo = item.stock_minimo;
-                    const stockMaximo = item.stock_maximo;
+                  {filteredProductos.map(producto => {
+                    const stockActual = calcularStockDisponible(producto.id_producto);
+                    const configuracion = obtenerConfiguracionStock(producto.id_producto);
+                    const enInventario = inventario.some(item => item.id_producto === producto.id_producto);
                     
-                    let estado = "optimo";
-                    let estadoLabel = "Óptimo";
-                    let estadoIcon = <CheckCircle2 size={14} />;
+                    let estado = "normal";
+                    let estadoLabel = "Normal";
+                    let estadoColor = "#28a745";
                     
-                    if (stockActual <= stockMinimo) {
+                    if (!enInventario) {
+                      estado = "sin-inventario";
+                      estadoLabel = "Sin Inventario";
+                      estadoColor = "#6c757d";
+                    } else if (stockActual <= configuracion.stock_minimo) {
                       estado = "bajo";
                       estadoLabel = "Bajo";
-                      estadoIcon = <AlertCircle size={14} />;
-                    } else if (stockActual > stockMaximo) {
-                      estado = "exceso";
-                      estadoLabel = "Exceso";
-                      estadoIcon = <TrendingUp size={14} />;
+                      estadoColor = "#dc3545";
+                    } else if (configuracion.stock_maximo > 0 && stockActual > configuracion.stock_maximo) {
+                      estado = "alto";
+                      estadoLabel = "Alto";
+                      estadoColor = "#ffc107";
                     }
 
                     return (
-                      <tr key={item.id_inventario} className={estado}>
-                        <td className="producto-cell">
-                          <strong>{producto?.nombre || 'N/A'}</strong>
-                          {producto?.descripcion && (
-                            <small>{producto.descripcion}</small>
+                      <tr key={producto.id_producto}>
+                        <td style={styles.td}>
+                          <strong style={styles.productName}>{producto.nombre}</strong>
+                          {producto.descripcion && (
+                            <div style={styles.productDescription}>{producto.descripcion}</div>
                           )}
                         </td>
-                        <td className="categoria-cell">
-                          {producto?.categoria_productos?.nombre || 'N/A'}
+                        <td style={styles.td}>{producto.categoria_productos?.nombre || 'N/A'}</td>
+                        <td style={styles.td}>
+                          <strong style={{color: estadoColor, fontSize: '16px'}}>
+                            {stockActual}
+                          </strong>
                         </td>
-                        <td className="fecha-cell">{item.fecha}</td>
-                        <td className="entrada-cell">
-                          <span className="badge entrada">{item.entradas}</span>
-                        </td>
-                        <td className="salida-cell">
-                          <span className="badge salida">{item.salidas}</span>
-                        </td>
-                        <td className="stock-cell">
-                          <strong>{stockActual}</strong>
-                        </td>
-                        <td className="estado-cell">
-                          <span className={`estado ${estado}`}>
-                            {estadoIcon}
+                        <td style={styles.td}>{configuracion.stock_minimo}</td>
+                        <td style={styles.td}>{configuracion.stock_maximo}</td>
+                        <td style={styles.td}>
+                          <span style={{
+                            ...styles.estadoBadge,
+                            backgroundColor: estado === 'bajo' ? '#fff5f5' : 
+                                           estado === 'alto' ? '#fff3cd' : 
+                                           estado === 'sin-inventario' ? '#f8f9fa' : '#e8f5e8',
+                            color: estadoColor,
+                            border: estado === 'sin-inventario' ? '1px solid #dee2e6' : 'none'
+                          }}>
                             {estadoLabel}
                           </span>
                         </td>
-                        <td className="observaciones-cell">
-                          {item.observaciones || '-'}
-                        </td>
-                        <td className="actions-cell">
-                          <div className="action-buttons-small">
+                        <td style={styles.td}>
+                          <div style={styles.actionButtonsSmall}>
                             <button
-                              onClick={() => producto && verDetalleProducto(producto)}
-                              className="btn-view"
+                              onClick={() => verDetalleProducto(producto)}
+                              style={{...styles.btnSmall, ...styles.btnView}}
                               title="Ver detalles"
-                              disabled={!producto}
                             >
                               <Eye size={14} />
                             </button>
-                            <button
-                              onClick={() => editarRegistro(item)}
-                              className="btn-edit"
-                              title="Editar movimiento"
-                            >
-                              <Edit size={14} />
-                            </button>
-                            <button
-                              onClick={() => eliminarRegistro(item.id_inventario)}
-                              className="btn-delete"
-                              title="Eliminar movimiento"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            {enInventario ? (
+                              <button
+                                onClick={() => gestionarStock(producto)}
+                                style={{...styles.btnSmall, ...styles.btnEdit}}
+                                title="Gestionar stock"
+                              >
+                                <Edit size={14} />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => agregarAlInventario(producto)}
+                                style={{...styles.btnSmall, ...styles.btnSuccess}}
+                                title="Agregar al inventario"
+                              >
+                                <Plus size={14} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -816,10 +868,10 @@ export default function Inventario() {
                   })}
                 </tbody>
               </table>
-              {filteredInventario.length === 0 && (
-                <div className="empty-state">
-                  <Package size={48} />
-                  <p>No se encontraron registros de inventario</p>
+              {filteredProductos.length === 0 && (
+                <div style={styles.emptyState}>
+                  <Package size={48} style={{opacity: 0.5, marginBottom: '16px'}} />
+                  <p>No se encontraron productos</p>
                 </div>
               )}
             </div>
@@ -827,714 +879,483 @@ export default function Inventario() {
         </>
       )}
 
-      <style jsx>{`
-        .container {
-          padding: 20px;
-          max-width: 1600px;
-          margin: 0 auto;
-        }
-
-        .page-header {
-          margin-bottom: 30px;
-        }
-
-        .page-header h1 {
-          font-size: 28px;
-          color: #7a3b06;
-          margin-bottom: 8px;
-          font-weight: 700;
-        }
-
-        .page-header p {
-          color: #6d4611;
-          font-size: 14px;
-          opacity: 0.9;
-        }
-
-        .loading-container {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 60px 20px;
-          color: #7a3b06;
-        }
-
-        .spinner {
-          animation: spin 1s linear infinite;
-        }
-
+      {/* Estilos globales */}
+      <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-
-        .alert {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 12px 16px;
-          border-radius: 8px;
-          margin-bottom: 20px;
-          font-size: 14px;
+        
+        input:focus, textarea:focus, select:focus {
+          outline: none;
+          border-color: #7a3b06 !important;
         }
-
-        .alert.error {
-          background-color: #fee;
-          border: 1px solid #f5c6cb;
-          color: #721c24;
-        }
-
-        .alert.success {
-          background-color: #f0fff4;
-          border: 1px solid #c3e6cb;
-          color: #155724;
-        }
-
-        .alert.warning {
-          background-color: #fff3cd;
-          border: 1px solid #ffeaa7;
-          color: #856404;
-        }
-
-        .alert-close {
-          margin-left: auto;
-          background: none;
-          border: none;
-          cursor: pointer;
-          opacity: 0.7;
-        }
-
-        /* Vista de Detalle */
-        .detalle-producto {
-          background: white;
-          border-radius: 12px;
-          border: 1px solid #e9d8b5;
-          overflow: hidden;
-        }
-
-        .detalle-header {
-          padding: 20px;
-          border-bottom: 1px solid #e9d8b5;
-          background-color: #f8f5ee;
-          display: flex;
-          align-items: center;
-          gap: 20px;
-        }
-
-        .detalle-header h2 {
-          color: #7a3b06;
-          margin: 0;
-        }
-
-        .detalle-content {
-          padding: 30px;
-        }
-
-        .detalle-card {
-          display: grid;
-          grid-template-columns: 2fr 1fr;
-          gap: 30px;
-          margin-bottom: 30px;
-        }
-
-        .producto-info h3 {
-          color: #7a3b06;
-          margin-bottom: 10px;
-          font-size: 24px;
-        }
-
-        .descripcion {
-          color: #6d4611;
-          margin-bottom: 20px;
-          line-height: 1.5;
-        }
-
-        .info-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 15px;
-        }
-
-        .info-item {
-          padding: 15px;
-          background: #f8f5ee;
-          border-radius: 8px;
-        }
-
-        .info-item label {
-          display: block;
-          font-size: 12px;
-          color: #6d4611;
-          opacity: 0.8;
-          margin-bottom: 4px;
-        }
-
-        .info-item span {
-          display: block;
-          font-weight: 500;
-          color: #7a3b06;
-        }
-
-        .precio {
-          color: #28a745 !important;
-          font-weight: 700 !important;
-        }
-
-        .vencido {
-          color: #dc3545 !important;
-        }
-
-        .vigente {
-          color: #28a745 !important;
-        }
-
-        .stock-info {
-          background: #e8f5e8;
-          padding: 20px;
-          border-radius: 8px;
-          border: 1px solid #c3e6cb;
-        }
-
-        .stock-info h4 {
-          color: #155724;
-          margin-bottom: 15px;
-        }
-
-        .stock-stats {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 10px;
-        }
-
-        .stat {
-          text-align: center;
-          padding: 15px;
-          background: white;
-          border-radius: 6px;
-        }
-
-        .stat .value {
-          display: block;
-          font-size: 24px;
-          font-weight: 700;
-          color: #155724;
-        }
-
-        .stat .label {
-          font-size: 12px;
-          color: #6d4611;
-          opacity: 0.8;
-        }
-
-        .historial-movimientos h4 {
-          color: #7a3b06;
-          margin-bottom: 15px;
-        }
-
-        /* Barra de búsqueda y filtros */
-        .search-filter-bar {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-          margin-bottom: 24px;
-        }
-
-        .search-box {
-          position: relative;
-          flex: 1;
-        }
-
-        .search-box svg {
-          position: absolute;
-          left: 12px;
-          top: 50%;
-          transform: translateY(-50%);
-          color: #6d4611;
-        }
-
-        .search-input {
-          width: 100%;
-          padding: 12px 12px 12px 40px;
-          border: 1px solid #e9d8b5;
-          border-radius: 8px;
-          font-size: 14px;
-        }
-
-        .filter-group {
-          display: flex;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-
-        .filter-select {
-          padding: 12px;
-          border: 1px solid #e9d8b5;
-          border-radius: 8px;
-          font-size: 14px;
-          min-width: 180px;
-        }
-
-        .date-filters {
-          display: flex;
-          gap: 8px;
-        }
-
-        .date-input {
-          padding: 12px;
-          border: 1px solid #e9d8b5;
-          border-radius: 8px;
-          font-size: 14px;
-          min-width: 150px;
-        }
-
-        /* Estadísticas */
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 16px;
-          margin-bottom: 24px;
-        }
-
-        .stat-card {
-          background: white;
-          padding: 20px;
-          border-radius: 12px;
-          border: 1px solid #e9d8b5;
-          display: flex;
-          align-items: center;
-          gap: 16px;
-        }
-
-        .stat-card.alert {
-          border-color: #dc3545;
-          background: #fee;
-        }
-
-        .stat-icon {
-          background: #f8f5ee;
-          padding: 12px;
-          border-radius: 8px;
-          color: #7a3b06;
-        }
-
-        .stat-icon.total { background: #e3f2fd; color: #1976d2; }
-        .stat-icon.movimientos { background: #fff3e0; color: #f57c00; }
-        .stat-icon.valor { background: #e8f5e8; color: #28a745; }
-
-        .stat-value {
-          font-size: 20px;
-          font-weight: 700;
-          color: #7a3b06;
-        }
-
-        .stat-label {
-          font-size: 12px;
-          color: #6d4611;
-          opacity: 0.8;
-        }
-
-        /* Botones y formularios */
-        .action-buttons {
-          display: flex;
-          gap: 12px;
-          margin-bottom: 24px;
-          flex-wrap: wrap;
-        }
-
-        .btn {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 12px 20px;
-          border: none;
-          border-radius: 8px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: 500;
-          transition: all 0.2s;
-        }
-
-        .btn-primary {
-          background-color: #7a3b06;
-          color: white;
-        }
-
-        .btn-secondary {
-          background-color: #6d4611;
-          color: white;
-        }
-
-        .btn-success {
-          background-color: #28a745;
-          color: white;
-        }
-
-        .btn-cancel {
-          background-color: #6c757d;
-          color: white;
-        }
-
+        
         .btn:hover {
           opacity: 0.9;
           transform: translateY(-1px);
         }
-
+        
         .btn:disabled {
           opacity: 0.5;
           cursor: not-allowed;
           transform: none;
         }
-
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background-color: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-          padding: 20px;
-        }
-
-        .modal {
-          background: white;
-          padding: 24px;
-          border-radius: 12px;
-          border: 1px solid #e9d8b5;
-          max-width: 600px;
-          width: 100%;
-          max-height: 90vh;
-          overflow-y: auto;
-        }
-
-        .modal.large {
-          max-width: 800px;
-        }
-
-        .modal h3 {
-          color: #7a3b06;
-          margin-bottom: 20px;
-          font-size: 20px;
-        }
-
-        .form-row {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 16px;
-          margin-bottom: 16px;
-        }
-
-        .form-group {
-          margin-bottom: 16px;
-        }
-
-        .form-group label {
-          display: block;
-          margin-bottom: 6px;
-          color: #6d4611;
-          font-weight: 500;
-        }
-
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
-          width: 100%;
-          padding: 10px;
-          border: 1px solid #e9d8b5;
-          border-radius: 6px;
-          font-size: 14px;
-        }
-
-        .form-group input:focus,
-        .form-group select:focus,
-        .form-group textarea:focus {
-          outline: none;
-          border-color: #7a3b06;
-        }
-
-        .form-group input:disabled {
-          background-color: #f8f9fa;
-          opacity: 0.7;
-        }
-
-        .stock-proyeccion {
-          background: #e3f2fd;
-          padding: 15px;
-          border-radius: 6px;
-          margin-bottom: 16px;
-          border: 1px solid #bbdefb;
-        }
-
-        .proyeccion-info {
-          color: #1976d2;
-          font-weight: 500;
-        }
-
-        .char-count {
-          display: block;
-          text-align: right;
-          font-size: 12px;
-          color: #6d4611;
-          opacity: 0.7;
-          margin-top: 4px;
-        }
-
-        .form-actions {
-          display: flex;
-          gap: 12px;
-          margin-top: 24px;
-        }
-
-        /* Tabla */
-        .table-card {
-          background: white;
-          border-radius: 12px;
-          border: 1px solid #e9d8b5;
-          overflow: hidden;
-        }
-
-        .table-header {
-          padding: 20px;
-          border-bottom: 1px solid #e9d8b5;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          background-color: #f8f5ee;
-        }
-
-        .table-header h2 {
-          color: #7a3b06;
-          margin: 0;
-          font-size: 18px;
-          flex: 1;
-        }
-
-        .table-actions {
-          display: flex;
-          gap: 10px;
-          align-items: center;
-        }
-
-        .table-container {
-          overflow-x: auto;
-        }
-
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          min-width: 1200px;
-        }
-
-        th {
-          padding: 12px;
-          text-align: left;
-          border: 1px solid #e9d8b5;
-          color: #6d4611;
-          font-weight: 600;
-          background-color: #f8f5ee;
-        }
-
-        td {
-          padding: 12px;
-          border: 1px solid #e9d8b5;
-          color: #6d4611;
-        }
-
-        /* Estados de las filas */
-        tr.bajo {
-          background-color: #fff5f5;
-        }
-
-        tr.exceso {
-          background-color: #f0fff4;
-        }
-
-        .producto-cell strong {
-          display: block;
-          color: #7a3b06;
-        }
-
-        .producto-cell small {
-          color: #6d4611;
-          opacity: 0.8;
-          font-size: 12px;
-        }
-
-        .entrada-cell .badge.entrada {
-          background-color: #e8f5e8;
-          color: #28a745;
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-weight: 600;
-        }
-
-        .salida-cell .badge.salida {
-          background-color: #fee;
-          color: #dc3545;
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-weight: 600;
-        }
-
-        .stock-cell strong {
-          color: #7a3b06;
-          font-size: 16px;
-        }
-
-        .estado-cell .estado {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-size: 12px;
-          font-weight: 600;
-        }
-
-        .estado.optimo {
-          background-color: #e8f5e8;
-          color: #28a745;
-        }
-
-        .estado.bajo {
-          background-color: #fff5f5;
-          color: #dc3545;
-        }
-
-        .estado.exceso {
-          background-color: #fff3cd;
-          color: #856404;
-        }
-
-        .observaciones-cell {
-          max-width: 200px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-
-        .actions-cell {
-          width: 140px;
-        }
-
-        .action-buttons-small {
-          display: flex;
-          gap: 6px;
-          justify-content: center;
-        }
-
-        .btn-view,
-        .btn-edit,
-        .btn-delete {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 6px 8px;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .btn-view {
-          background-color: #17a2b8;
-          color: white;
-        }
-
-        .btn-edit {
-          background-color: #ffc107;
-          color: #7a3b06;
-        }
-
-        .btn-delete {
-          background-color: #dc3545;
-          color: white;
-        }
-
-        .btn-view:hover,
-        .btn-edit:hover,
-        .btn-delete:hover {
-          opacity: 0.8;
-        }
-
-        .badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-size: 12px;
-          font-weight: 600;
-        }
-
-        .badge-success {
-          background-color: #e8f5e8;
-          color: #28a745;
-        }
-
-        .badge-danger {
-          background-color: #fff5f5;
-          color: #dc3545;
-        }
-
-        .empty-state {
-          padding: 60px 20px;
-          text-align: center;
-          color: #6d4611;
-          opacity: 0.7;
-        }
-
-        .empty-state svg {
-          margin-bottom: 16px;
-          opacity: 0.5;
-        }
-
-        @media (max-width: 768px) {
-          .container {
-            padding: 16px;
-          }
-          .search-filter-bar {
-            flex-direction: column;
-          }
-          .filter-group {
-            flex-direction: column;
-          }
-          .filter-select, .date-input {
-            min-width: auto;
-          }
-          .detalle-card {
-            grid-template-columns: 1fr;
-          }
-          .form-actions {
-            flex-direction: column;
-          }
-          .stats-grid {
-            grid-template-columns: 1fr 1fr;
-          }
-          .action-buttons {
-            flex-direction: column;
-          }
-          .modal {
-            margin: 20px;
-          }
-          .modal.large {
-            max-width: calc(100vw - 40px);
-          }
-        }
-
-        @media (max-width: 480px) {
-          .stats-grid {
-            grid-template-columns: 1fr;
-          }
-          .info-grid {
-            grid-template-columns: 1fr;
-          }
-        }
       `}</style>
     </div>
   );
 }
+
+// Estilos actualizados
+const styles = {
+  container: {
+    padding: "20px",
+    maxWidth: "1400px",
+    margin: "0 auto"
+  },
+  pageHeader: {
+    marginBottom: "30px"
+  },
+  pageHeaderH1: {
+    fontSize: "28px",
+    color: "#7a3b06",
+    marginBottom: "8px",
+    fontWeight: "700"
+  },
+  pageHeaderP: {
+    color: "#6d4611",
+    fontSize: "14px",
+    opacity: 0.9
+  },
+  loadingContainer: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "60px 20px",
+    color: "#7a3b06"
+  },
+  alert: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    padding: "12px 16px",
+    borderRadius: "8px",
+    marginBottom: "20px",
+    fontSize: "14px"
+  },
+  alertError: {
+    backgroundColor: "#fee",
+    border: "1px solid #f5c6cb",
+    color: "#721c24"
+  },
+  alertSuccess: {
+    backgroundColor: "#f0fff4",
+    border: "1px solid #c3e6cb",
+    color: "#155724"
+  },
+  alertWarning: {
+    backgroundColor: "#fff3cd",
+    border: "1px solid #ffeaa7",
+    color: "#856404"
+  },
+  alertInfo: {
+    backgroundColor: "#e3f2fd",
+    border: "1px solid #bbdefb",
+    color: "#1976d2"
+  },
+  alertClose: {
+    marginLeft: "auto",
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    opacity: 0.7
+  },
+  // Vista de Detalle
+  detalleProducto: {
+    background: "white",
+    borderRadius: "12px",
+    border: "1px solid #e9d8b5",
+    overflow: "hidden"
+  },
+  detalleHeader: {
+    padding: "20px",
+    borderBottom: "1px solid #e9d8b5",
+    background: "#f8f5ee",
+    display: "flex",
+    alignItems: "center",
+    gap: "20px"
+  },
+  detalleTitle: {
+    color: "#7a3b06",
+    margin: 0
+  },
+  detalleContent: {
+    padding: "30px"
+  },
+  detalleCard: {
+    marginBottom: "30px"
+  },
+  productoInfo: {
+    marginBottom: "20px"
+  },
+  productoNombre: {
+    color: "#7a3b06",
+    marginBottom: "10px",
+    fontSize: "24px"
+  },
+  descripcion: {
+    color: "#6d4611",
+    marginBottom: "20px",
+    lineHeight: 1.5
+  },
+  infoGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: "15px"
+  },
+  infoItem: {
+    padding: "15px",
+    background: "#f8f5ee",
+    borderRadius: "8px"
+  },
+  infoLabel: {
+    display: "block",
+    fontSize: "12px",
+    color: "#6d4611",
+    opacity: 0.8,
+    marginBottom: "4px"
+  },
+  infoValue: {
+    display: "block",
+    fontWeight: "500",
+    color: "#7a3b06"
+  },
+  precio: {
+    color: "#28a745",
+    fontWeight: "700"
+  },
+  stockCero: {
+    color: "#dc3545"
+  },
+  historialMovimientos: {
+    marginTop: "30px"
+  },
+  historialTitle: {
+    color: "#7a3b06",
+    marginBottom: "15px"
+  },
+  // Barra de búsqueda y filtros
+  searchFilterBar: {
+    display: "flex",
+    gap: "16px",
+    marginBottom: "24px",
+    flexWrap: "wrap"
+  },
+  searchBox: {
+    position: "relative",
+    flex: "1",
+    minWidth: "300px"
+  },
+  searchIcon: {
+    position: "absolute",
+    left: "12px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    color: "#6d4611"
+  },
+  searchInput: {
+    width: "100%",
+    padding: "12px 12px 12px 40px",
+    border: "1px solid #e9d8b5",
+    borderRadius: "8px",
+    fontSize: "14px"
+  },
+  filterGroup: {
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap"
+  },
+  filterSelect: {
+    padding: "12px",
+    border: "1px solid #e9d8b5",
+    borderRadius: "8px",
+    fontSize: "14px",
+    minWidth: "180px"
+  },
+  // Estadísticas
+  statsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: "16px",
+    marginBottom: "24px"
+  },
+  statCard: {
+    background: "white",
+    padding: "20px",
+    borderRadius: "12px",
+    border: "1px solid #e9d8b5",
+    display: "flex",
+    alignItems: "center",
+    gap: "16px"
+  },
+  statIcon: {
+    background: "#f8f5ee",
+    padding: "12px",
+    borderRadius: "8px",
+    color: "#7a3b06"
+  },
+  statIconTotal: {
+    background: "#e3f2fd",
+    color: "#1976d2"
+  },
+  statIconSuccess: {
+    background: "#e8f5e8",
+    color: "#28a745"
+  },
+  statIconAlert: {
+    background: "#fff5f5",
+    color: "#dc3545"
+  },
+  statIconWarning: {
+    background: "#fff3cd",
+    color: "#ffc107"
+  },
+  statIconValor: {
+    background: "#f3e5f5",
+    color: "#9c27b0"
+  },
+  statInfo: {
+    flex: "1"
+  },
+  statValue: {
+    fontSize: "20px",
+    fontWeight: "700",
+    color: "#7a3b06",
+    marginBottom: "4px"
+  },
+  statLabel: {
+    fontSize: "12px",
+    color: "#6d4611",
+    opacity: 0.8
+  },
+  // Botones y formularios
+  actionButtons: {
+    display: "flex",
+    gap: "12px",
+    marginBottom: "24px",
+    flexWrap: "wrap"
+  },
+  btn: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "12px 20px",
+    border: "none",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontSize: "14px",
+    fontWeight: "500",
+    transition: "all 0.2s"
+  },
+  btnPrimary: {
+    backgroundColor: "#7a3b06",
+    color: "white"
+  },
+  btnSecondary: {
+    backgroundColor: "#6d4611",
+    color: "white"
+  },
+  btnSuccess: {
+    backgroundColor: "#28a745",
+    color: "white"
+  },
+  btnCancel: {
+    backgroundColor: "#6c757d",
+    color: "white"
+  },
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1000,
+    padding: "20px"
+  },
+  modal: {
+    background: "white",
+    padding: "24px",
+    borderRadius: "12px",
+    border: "1px solid #e9d8b5",
+    maxWidth: "600px",
+    width: "100%",
+    maxHeight: "90vh",
+    overflowY: "auto"
+  },
+  modalTitle: {
+    color: "#7a3b06",
+    marginBottom: "20px",
+    fontSize: "20px"
+  },
+  formRow: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "16px",
+    marginBottom: "16px"
+  },
+  formGroup: {
+    marginBottom: "16px"
+  },
+  formLabel: {
+    display: "block",
+    marginBottom: "6px",
+    color: "#6d4611",
+    fontWeight: "500"
+  },
+  formInput: {
+    width: "100%",
+    padding: "10px",
+    border: "1px solid #e9d8b5",
+    borderRadius: "6px",
+    fontSize: "14px"
+  },
+  formSelect: {
+    width: "100%",
+    padding: "10px",
+    border: "1px solid #e9d8b5",
+    borderRadius: "6px",
+    fontSize: "14px",
+    background: "white"
+  },
+  formTextarea: {
+    width: "100%",
+    padding: "10px",
+    border: "1px solid #e9d8b5",
+    borderRadius: "6px",
+    fontSize: "14px",
+    resize: "vertical"
+  },
+  stockInfo: {
+    background: "#e3f2fd",
+    padding: "15px",
+    borderRadius: "6px",
+    marginBottom: "16px",
+    border: "1px solid #bbdefb"
+  },
+  stockItem: {
+    color: "#1976d2",
+    marginBottom: "8px"
+  },
+  formActions: {
+    display: "flex",
+    gap: "12px",
+    marginTop: "24px"
+  },
+  // Tabla
+  tableCard: {
+    background: "white",
+    borderRadius: "12px",
+    border: "1px solid #e9d8b5",
+    overflow: "hidden"
+  },
+  tableHeader: {
+    padding: "20px",
+    borderBottom: "1px solid #e9d8b5",
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    background: "#f8f5ee"
+  },
+  tableTitle: {
+    color: "#7a3b06",
+    margin: 0,
+    fontSize: "18px"
+  },
+  tableContainer: {
+    overflowX: "auto"
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    minWidth: "800px"
+  },
+  th: {
+    padding: "12px",
+    textAlign: "left",
+    border: "1px solid #e9d8b5",
+    color: "#6d4611",
+    fontWeight: "600",
+    background: "#f8f5ee"
+  },
+  td: {
+    padding: "12px",
+    border: "1px solid #e9d8b5",
+    color: "#6d4611"
+  },
+  productName: {
+    display: "block",
+    color: "#7a3b06",
+    marginBottom: "4px"
+  },
+  productDescription: {
+    fontSize: "12px",
+    color: "#6d4611",
+    opacity: 0.8
+  },
+  entrada: {
+    color: "#28a745",
+    fontWeight: "600"
+  },
+  salida: {
+    color: "#dc3545",
+    fontWeight: "600"
+  },
+  estadoBadge: {
+    display: "inline-block",
+    padding: "4px 8px",
+    borderRadius: "12px",
+    fontSize: "12px",
+    fontWeight: "600"
+  },
+  actionButtonsSmall: {
+    display: "flex",
+    gap: "6px"
+  },
+  btnSmall: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "6px 8px",
+    border: "none",
+    borderRadius: "4px",
+    cursor: "pointer",
+    transition: "all 0.2s"
+  },
+  btnView: {
+    backgroundColor: "#17a2b8",
+    color: "white"
+  },
+  btnEdit: {
+    backgroundColor: "#ffc107",
+    color: "#7a3b06"
+  },
+  btnSuccess: {
+    backgroundColor: "#28a745",
+    color: "white"
+  },
+  btnDanger: {
+    backgroundColor: "#dc3545",
+    color: "white"
+  },
+  emptyState: {
+    padding: "60px 20px",
+    textAlign: "center",
+    color: "#6d4611",
+    opacity: 0.7
+  }
+};
