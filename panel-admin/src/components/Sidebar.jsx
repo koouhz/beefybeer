@@ -7,6 +7,9 @@ import {
   UserCheck, AlertCircle, Settings
 } from "lucide-react";
 
+// Importa tu logo - ajusta la ruta según donde tengas tu imagen
+import logo from '../logo/images.jpg'; // Ajusta esta ruta
+
 export default function Sidebar({ onLogout, empleado }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -329,10 +332,25 @@ export default function Sidebar({ onLogout, empleado }) {
       >
         {/* Header del Sidebar */}
         <div style={sidebarStyles.header}>
-          <div style={sidebarStyles.brandSection}>
-            <div style={sidebarStyles.brandLogo}>
+          {/* Logo minimalista */}
+          <div style={sidebarStyles.logoContainer}>
+            <img 
+              src={logo} 
+              alt="Beef & Beer Logo" 
+              style={sidebarStyles.logoImage}
+              onError={(e) => {
+                // Fallback si la imagen no carga
+                e.target.style.display = 'none';
+                e.target.nextSibling.style.display = 'flex';
+              }}
+            />
+            {/* Fallback en caso de que la imagen no cargue */}
+            <div style={sidebarStyles.logoFallback}>
               B&B
             </div>
+          </div>
+          
+          <div style={sidebarStyles.brandSection}>
             <h2 style={sidebarStyles.brandTitle}>Beef & Beer</h2>
             <span style={sidebarStyles.brandSubtitle}>Sistema de gestión</span>
           </div>
@@ -483,22 +501,39 @@ const sidebarStyles = {
     marginBottom: "25px",
     flexShrink: 0
   },
-  brandSection: {
-    textAlign: "center",
-    marginBottom: "20px"
-  },
-  brandLogo: {
-    width: "40px",
-    height: "40px",
-    background: "linear-gradient(135deg, #7a3b06, #a85a1a)",
-    borderRadius: "8px",
+  logoContainer: {
+    position: "relative",
+    marginBottom: "20px",
     display: "flex",
+    justifyContent: "center"
+  },
+  logoImage: {
+    width: "80px",
+    height: "80px",
+    borderRadius: "50%",
+    objectFit: "cover",
+    border: "3px solid #7a3b06",
+    boxShadow: "0 4px 12px rgba(122, 59, 6, 0.2)",
+    transition: "all 0.3s ease",
+    cursor: "pointer"
+  },
+  logoFallback: {
+    width: "80px",
+    height: "80px",
+    borderRadius: "50%",
+    background: "linear-gradient(135deg, #7a3b06, #a85a1a)",
+    display: "none",
     alignItems: "center",
     justifyContent: "center",
     color: "#f7dca1",
-    fontSize: "14px",
+    fontSize: "18px",
     fontWeight: "bold",
-    margin: "0 auto 10px"
+    border: "3px solid #7a3b06",
+    boxShadow: "0 4px 12px rgba(122, 59, 6, 0.2)"
+  },
+  brandSection: {
+    textAlign: "center",
+    marginBottom: "20px"
   },
   brandTitle: {
     margin: "0 0 4px 0",
