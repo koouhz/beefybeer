@@ -7,7 +7,6 @@ import {
   Plus, 
   Package, 
   Search,
-  Filter,
   Phone,
   User,
   CheckCircle,
@@ -17,16 +16,11 @@ import {
   Save,
   Loader,
   RefreshCw,
-  ChevronDown,
-  ChevronUp,
   Mail,
   Building,
-  MapPin,
-  Clock,
-  Star,
   Truck,
-  DollarSign,
-  Activity
+  Activity,
+  Clock
 } from "lucide-react";
 
 export default function Proveedores() {
@@ -34,7 +28,6 @@ export default function Proveedores() {
   const [productos, setProductos] = useState([]);
   const [proveedoresProductos, setProveedoresProductos] = useState([]);
   const [proveedoresContactos, setProveedoresContactos] = useState([]);
-  const [proveedoresEvaluaciones, setProveedoresEvaluaciones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -46,10 +39,8 @@ export default function Proveedores() {
   const [proveedorSeleccionado, setProveedorSeleccionado] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
 
-  // Estados para búsqueda y filtros
   const [searchTerm, setSearchTerm] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("todos");
-  const [showFiltros, setShowFiltros] = useState(false);
 
   const [form, setForm] = useState({
     ci_proveedor: '',
@@ -57,11 +48,9 @@ export default function Proveedores() {
     contacto_principal: '',
     telefono: '',
     email: '',
-    direccion: '',
+    descripcion: '',
     ruta_entrega: '',
-    tiempo_entrega_dias: '',
-    estado: 'activo',
-    observaciones: ''
+    estado: 'activo'
   });
 
   const [productoForm, setProductoForm] = useState({
@@ -104,13 +93,11 @@ export default function Proveedores() {
         productosRes, 
         proveedoresProductosRes,
         proveedoresContactosRes,
-        proveedoresEvaluacionesRes
       ] = await Promise.all([
         supabase.from('proveedores').select('*').order('fecha_registro', { ascending: false }),
         supabase.from('productos').select('*').order('nombre'),
         supabase.from('proveedores_productos').select('*'),
         supabase.from('proveedores_contactos').select('*'),
-        supabase.from('proveedores_evaluaciones').select('*')
       ]);
       
       const errors = [
@@ -118,7 +105,6 @@ export default function Proveedores() {
         productosRes.error, 
         proveedoresProductosRes.error,
         proveedoresContactosRes.error,
-        proveedoresEvaluacionesRes.error
       ].filter(error => error);
 
       if (errors.length > 0) {
@@ -129,7 +115,6 @@ export default function Proveedores() {
       setProductos(productosRes.data || []);
       setProveedoresProductos(proveedoresProductosRes.data || []);
       setProveedoresContactos(proveedoresContactosRes.data || []);
-      setProveedoresEvaluaciones(proveedoresEvaluacionesRes.data || []);
     } catch (error) {
       showMessage(`Error al cargar datos: ${error.message}`);
       console.error('Error:', error);
@@ -138,7 +123,6 @@ export default function Proveedores() {
     }
   };
 
-  // VALIDACIONES MEJORADAS
   const validateProveedor = (proveedorData) => {
     const errors = [];
 
@@ -154,19 +138,16 @@ export default function Proveedores() {
       errors.push("El contacto principal debe tener al menos 2 caracteres");
     }
 
-    // Validar teléfono
     if (proveedorData.telefono && !/^[\d\s\-\+\(\)]{7,15}$/.test(proveedorData.telefono)) {
       errors.push("El formato del teléfono no es válido");
     }
 
-    // Validar email
     if (proveedorData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(proveedorData.email)) {
       errors.push("El formato del email no es válido");
     }
 
-    // Validar tiempo de entrega
-    if (proveedorData.tiempo_entrega_dias && (proveedorData.tiempo_entrega_dias < 1 || proveedorData.tiempo_entrega_dias > 30)) {
-      errors.push("El tiempo de entrega debe estar entre 1 y 30 días");
+    if (!proveedorData.descripcion || proveedorData.descripcion.trim().length < 10) {
+      errors.push("La descripción es obligatoria y debe tener al menos 10 caracteres");
     }
 
     if (errors.length > 0) {
@@ -185,11 +166,9 @@ export default function Proveedores() {
         contacto_principal: form.contacto_principal.trim(),
         telefono: form.telefono.trim() || null,
         email: form.email.trim() || null,
-        direccion: form.direccion.trim() || null,
+        descripcion: form.descripcion.trim(),
         ruta_entrega: form.ruta_entrega.trim() || null,
-        tiempo_entrega_dias: form.tiempo_entrega_dias ? parseInt(form.tiempo_entrega_dias) : null,
-        estado: form.estado,
-        observaciones: form.observaciones.trim() || null
+        estado: form.estado
       };
 
       validateProveedor(proveedorData);
@@ -265,11 +244,21 @@ export default function Proveedores() {
     setActionLoading('agregar-contacto');
     
     try {
+      if (!contactoForm.nombre_contacto.trim()) {
+        throw new Error("El nombre del contacto es obligatorio");
+      }
+      if (!contactoForm.cargo.trim()) {
+        throw new Error("El cargo del contacto es obligatorio");
+      }
+      if (!contactoForm.telefono.trim()) {
+        throw new Error("El teléfono del contacto es obligatorio");
+      }
+
       const contactoData = {
         ci_proveedor: proveedorSeleccionado.ci_proveedor,
         nombre_contacto: contactoForm.nombre_contacto.trim(),
-        cargo: contactoForm.cargo.trim() || null,
-        telefono: contactoForm.telefono.trim() || null,
+        cargo: contactoForm.cargo.trim(),
+        telefono: contactoForm.telefono.trim(),
         email: contactoForm.email.trim() || null,
         es_contacto_principal: contactoForm.es_contacto_principal
       };
@@ -304,7 +293,6 @@ export default function Proveedores() {
     setActionLoading(`delete-${ci}`);
     
     try {
-      // Primero eliminar productos asociados
       const { error: errorProductos } = await supabase
         .from('proveedores_productos')
         .delete()
@@ -312,7 +300,6 @@ export default function Proveedores() {
 
       if (errorProductos) throw errorProductos;
 
-      // Luego eliminar contactos
       const { error: errorContactos } = await supabase
         .from('proveedores_contactos')
         .delete()
@@ -320,7 +307,6 @@ export default function Proveedores() {
 
       if (errorContactos) throw errorContactos;
 
-      // Finalmente eliminar el proveedor
       const { error } = await supabase
         .from('proveedores')
         .delete()
@@ -392,11 +378,9 @@ export default function Proveedores() {
       contacto_principal: '',
       telefono: '',
       email: '',
-      direccion: '',
+      descripcion: '',
       ruta_entrega: '',
-      tiempo_entrega_dias: '',
-      estado: 'activo',
-      observaciones: ''
+      estado: 'activo'
     });
     setEditingId(null);
     setShowForm(false);
@@ -407,7 +391,6 @@ export default function Proveedores() {
     setFiltroEstado("todos");
   };
 
-  // CÁLCULOS Y FILTROS MEJORADOS
   const getProductosProveedor = (ci_proveedor) => {
     return proveedoresProductos.filter(pp => pp.ci_proveedor === ci_proveedor);
   };
@@ -416,27 +399,11 @@ export default function Proveedores() {
     return proveedoresContactos.filter(pc => pc.ci_proveedor === ci_proveedor);
   };
 
-  const getEvaluacionesProveedor = (ci_proveedor) => {
-    return proveedoresEvaluaciones.filter(pe => pe.ci_proveedor === ci_proveedor);
-  };
-
-  const getPromedioEvaluacion = (ci_proveedor) => {
-    const evaluaciones = getEvaluacionesProveedor(ci_proveedor);
-    if (evaluaciones.length === 0) return 0;
-    
-    const total = evaluaciones.reduce((sum) => 
-      sum + eval.puntuacion_calidad + eval.puntuacion_entrega + eval.puntuacion_precio + eval.puntuacion_servicio, 0
-    );
-    
-    return (total / (evaluaciones.length * 4)).toFixed(1);
-  };
-
   const getProductoNombre = (id_producto) => {
     const producto = productos.find(p => p.id_producto === id_producto);
     return producto ? producto.nombre : 'Producto no encontrado';
   };
 
-  // FILTRADO MEJORADO
   const filteredProveedores = proveedores.filter(proveedor => {
     const matchesSearch = 
       proveedor.ci_proveedor.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -444,22 +411,19 @@ export default function Proveedores() {
       proveedor.contacto_principal.toLowerCase().includes(searchTerm.toLowerCase()) ||
       proveedor.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       proveedor.telefono?.includes(searchTerm) ||
-      proveedor.ruta_entrega?.toLowerCase().includes(searchTerm.toLowerCase());
+      proveedor.ruta_entrega?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      proveedor.descripcion?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesEstado = filtroEstado === "todos" || proveedor.estado === filtroEstado;
 
     return matchesSearch && matchesEstado;
   });
 
-  // ESTADÍSTICAS MEJORADAS
   const estadisticas = {
     totalProveedores: proveedores.length,
     proveedoresActivos: proveedores.filter(p => p.estado === 'activo').length,
     proveedoresConEmail: proveedores.filter(p => p.email).length,
-    totalProductosAsociados: proveedoresProductos.length,
-    promedioTiempoEntrega: proveedores.filter(p => p.tiempo_entrega_dias)
-      .reduce((sum, p) => sum + p.tiempo_entrega_dias, 0) / 
-      proveedores.filter(p => p.tiempo_entrega_dias).length || 0
+    totalProductosAsociados: proveedoresProductos.length
   };
 
   if (loading) {
@@ -480,7 +444,6 @@ export default function Proveedores() {
 
   return (
     <div style={{ padding: "20px", maxWidth: "1400px", margin: "0 auto" }}>
-      {/* Header */}
       <header style={{ marginBottom: "30px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "20px" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: "16px" }}>
@@ -517,7 +480,6 @@ export default function Proveedores() {
         </div>
       </header>
 
-      {/* Alertas */}
       {error && (
         <div style={{
           display: "flex",
@@ -578,7 +540,6 @@ export default function Proveedores() {
         </div>
       )}
 
-      {/* Estadísticas */}
       <div style={{
         display: "grid",
         gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
@@ -613,13 +574,6 @@ export default function Proveedores() {
             icon: Package, 
             color: "#fff3cd", 
             iconColor: "#856404"
-          },
-          { 
-            label: "Prom. Entrega (días)", 
-            value: estadisticas.promedioTiempoEntrega.toFixed(1), 
-            icon: Clock, 
-            color: "#e0f2f1", 
-            iconColor: "#00796b"
           }
         ].map((stat, index) => (
           <div key={index} style={{
@@ -659,7 +613,6 @@ export default function Proveedores() {
         ))}
       </div>
 
-      {/* Barra de búsqueda y filtros */}
       <div style={{
         display: "flex",
         flexDirection: "column",
@@ -729,7 +682,6 @@ export default function Proveedores() {
         </div>
       </div>
 
-      {/* Botones de acción */}
       <div style={{ display: "flex", gap: "12px", marginBottom: "24px", flexWrap: "wrap" }}>
         <button 
           onClick={() => { resetForm(); setShowForm(true); }} 
@@ -752,7 +704,6 @@ export default function Proveedores() {
         </button>
       </div>
 
-      {/* Tabla de proveedores */}
       <div style={{
         background: "white",
         borderRadius: "12px",
@@ -773,15 +724,14 @@ export default function Proveedores() {
           </h2>
         </div>
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1200px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1000px" }}>
             <thead>
               <tr style={{ backgroundColor: "#f8f5ee" }}>
                 <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "left" }}>CI/NIT</th>
                 <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "left" }}>Empresa</th>
                 <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "left" }}>Contacto</th>
-                <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "left" }}>Información</th>
+                <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "left" }}>Descripción</th>
                 <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "left" }}>Productos</th>
-                <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "center" }}>Evaluación</th>
                 <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "center" }}>Estado</th>
                 <th style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", fontWeight: "600", textAlign: "center" }}>Acciones</th>
               </tr>
@@ -790,7 +740,6 @@ export default function Proveedores() {
               {filteredProveedores.map(proveedor => {
                 const productosCount = getProductosProveedor(proveedor.ci_proveedor).length;
                 const contactosCount = getContactosProveedor(proveedor.ci_proveedor).length;
-                const promedioEvaluacion = getPromedioEvaluacion(proveedor.ci_proveedor);
                 
                 return (
                   <tr key={proveedor.ci_proveedor}>
@@ -839,12 +788,9 @@ export default function Proveedores() {
                             {proveedor.ruta_entrega}
                           </div>
                         )}
-                        {proveedor.tiempo_entrega_dias && (
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px" }}>
-                            <Clock size={12} />
-                            {proveedor.tiempo_entrega_dias} días
-                          </div>
-                        )}
+                        <div style={{ fontSize: "12px", color: "#6d4611", marginTop: "4px" }}>
+                          {proveedor.descripcion}
+                        </div>
                       </div>
                     </td>
                     <td style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611" }}>
@@ -869,28 +815,6 @@ export default function Proveedores() {
                           </div>
                         )}
                       </div>
-                    </td>
-                    <td style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", textAlign: "center" }}>
-                      {promedioEvaluacion > 0 ? (
-                        <div style={{ 
-                          display: "inline-flex", 
-                          alignItems: "center", 
-                          gap: "4px",
-                          padding: "4px 8px",
-                          backgroundColor: "#fff3cd",
-                          borderRadius: "12px",
-                          fontSize: "12px",
-                          fontWeight: "500",
-                          color: "#856404"
-                        }}>
-                          <Star size={12} fill="currentColor" />
-                          {promedioEvaluacion}/5
-                        </div>
-                      ) : (
-                        <span style={{ fontSize: "12px", color: "#6d4611", opacity: 0.7, fontStyle: "italic" }}>
-                          Sin evaluar
-                        </span>
-                      )}
                     </td>
                     <td style={{ padding: "12px", border: "1px solid #e9d8b5", color: "#6d4611", textAlign: "center" }}>
                       <div style={{ 
@@ -921,11 +845,9 @@ export default function Proveedores() {
                               contacto_principal: proveedor.contacto_principal || '',
                               telefono: proveedor.telefono || '',
                               email: proveedor.email || '',
-                              direccion: proveedor.direccion || '',
+                              descripcion: proveedor.descripcion || '',
                               ruta_entrega: proveedor.ruta_entrega || '',
-                              tiempo_entrega_dias: proveedor.tiempo_entrega_dias || '',
-                              estado: proveedor.estado || 'activo',
-                              observaciones: proveedor.observaciones || ''
+                              estado: proveedor.estado || 'activo'
                             });
                             setEditingId(proveedor.ci_proveedor);
                             setShowForm(true);
@@ -1037,7 +959,6 @@ export default function Proveedores() {
         </div>
       </div>
 
-      {/* Modal de formulario principal */}
       {showForm && (
         <div style={{
           position: "fixed",
@@ -1199,57 +1120,28 @@ export default function Proveedores() {
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" }}>
-                <div>
-                  <label style={{
-                    display: "block",
-                    marginBottom: "6px",
-                    color: "#6d4611",
-                    fontWeight: "500",
-                    fontSize: "12px"
-                  }}>
-                    Ruta de Entrega
-                  </label>
-                  <input
-                    type="text"
-                    value={form.ruta_entrega}
-                    onChange={(e) => setForm({...form, ruta_entrega: e.target.value})}
-                    placeholder="Zona o ruta de entrega"
-                    style={{
-                      width: "100%",
-                      padding: "10px",
-                      border: "1px solid #e9d8b5",
-                      borderRadius: "6px",
-                      fontSize: "14px"
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{
-                    display: "block",
-                    marginBottom: "6px",
-                    color: "#6d4611",
-                    fontWeight: "500",
-                    fontSize: "12px"
-                  }}>
-                    Tiempo Entrega (días)
-                  </label>
-                  <input
-                    type="number"
-                    value={form.tiempo_entrega_dias}
-                    onChange={(e) => setForm({...form, tiempo_entrega_dias: e.target.value})}
-                    placeholder="1-30"
-                    min="1"
-                    max="30"
-                    style={{
-                      width: "100%",
-                      padding: "10px",
-                      border: "1px solid #e9d8b5",
-                      borderRadius: "6px",
-                      fontSize: "14px"
-                    }}
-                  />
-                </div>
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{
+                  display: "block",
+                  marginBottom: "6px",
+                  color: "#6d4611",
+                  fontWeight: "500"
+                }}>
+                  Ruta de Entrega
+                </label>
+                <input
+                  type="text"
+                  value={form.ruta_entrega}
+                  onChange={(e) => setForm({...form, ruta_entrega: e.target.value})}
+                  placeholder="Zona o ruta de entrega"
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    border: "1px solid #e9d8b5",
+                    borderRadius: "6px",
+                    fontSize: "14px"
+                  }}
+                />
               </div>
 
               <div style={{ marginBottom: "16px" }}>
@@ -1259,14 +1151,16 @@ export default function Proveedores() {
                   color: "#6d4611",
                   fontWeight: "500"
                 }}>
-                  Dirección
+                  Descripción *
                 </label>
                 <textarea
-                  value={form.direccion}
-                  onChange={(e) => setForm({...form, direccion: e.target.value})}
-                  placeholder="Dirección completa de la empresa"
-                  rows="2"
-                  maxLength="200"
+                  value={form.descripcion}
+                  onChange={(e) => setForm({...form, descripcion: e.target.value})}
+                  placeholder="Descripción del proveedor..."
+                  rows="3"
+                  maxLength="500"
+                  required
+                  minLength="10"
                   style={{
                     width: "100%",
                     padding: "10px",
@@ -1304,32 +1198,6 @@ export default function Proveedores() {
                     <option value="suspendido">Suspendido</option>
                   </select>
                 </div>
-              </div>
-
-              <div style={{ marginBottom: "16px" }}>
-                <label style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  color: "#6d4611",
-                  fontWeight: "500"
-                }}>
-                  Observaciones
-                </label>
-                <textarea
-                  value={form.observaciones}
-                  onChange={(e) => setForm({...form, observaciones: e.target.value})}
-                  placeholder="Observaciones adicionales..."
-                  rows="3"
-                  maxLength="500"
-                  style={{
-                    width: "100%",
-                    padding: "10px",
-                    border: "1px solid #e9d8b5",
-                    borderRadius: "6px",
-                    fontSize: "14px",
-                    resize: "vertical"
-                  }}
-                />
               </div>
               
               <div style={{ display: "flex", gap: "12px", marginTop: "24px" }}>
@@ -1383,7 +1251,6 @@ export default function Proveedores() {
         </div>
       )}
 
-      {/* Modal para gestionar productos del proveedor */}
       {showProductosModal && proveedorSeleccionado && (
         <div style={{
           position: "fixed",
@@ -1412,7 +1279,6 @@ export default function Proveedores() {
               Productos de {proveedorSeleccionado.nombre_empresa}
             </h3>
             
-            {/* Formulario para agregar producto */}
             <div style={{ background: "#f8f5ee", padding: "16px", borderRadius: "8px", marginBottom: "20px" }}>
               <h4 style={{ color: "#7a3b06", marginBottom: "16px" }}>Agregar Producto</h4>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
@@ -1523,7 +1389,6 @@ export default function Proveedores() {
               </button>
             </div>
 
-            {/* Lista de productos existentes */}
             <div>
               <h4 style={{ color: "#7a3b06", marginBottom: "16px" }}>Productos Asociados</h4>
               {getProductosProveedor(proveedorSeleccionado.ci_proveedor).length > 0 ? (
@@ -1606,7 +1471,6 @@ export default function Proveedores() {
         </div>
       )}
 
-      {/* Modal para gestionar contactos del proveedor */}
       {showContactosModal && proveedorSeleccionado && (
         <div style={{
           position: "fixed",
@@ -1635,7 +1499,6 @@ export default function Proveedores() {
               Contactos de {proveedorSeleccionado.nombre_empresa}
             </h3>
             
-            {/* Formulario para agregar contacto */}
             <div style={{ background: "#f8f5ee", padding: "16px", borderRadius: "8px", marginBottom: "20px" }}>
               <h4 style={{ color: "#7a3b06", marginBottom: "16px" }}>Agregar Contacto</h4>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
@@ -1659,13 +1522,14 @@ export default function Proveedores() {
                 </div>
                 <div>
                   <label style={{ display: "block", marginBottom: "6px", color: "#6d4611", fontWeight: "500", fontSize: "12px" }}>
-                    Cargo
+                    Cargo *
                   </label>
                   <input
                     type="text"
                     value={contactoForm.cargo}
                     onChange={(e) => setContactoForm({...contactoForm, cargo: e.target.value})}
                     placeholder="Cargo o posición"
+                    required
                     style={{
                       width: "100%",
                       padding: "8px",
@@ -1679,13 +1543,14 @@ export default function Proveedores() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
                 <div>
                   <label style={{ display: "block", marginBottom: "6px", color: "#6d4611", fontWeight: "500", fontSize: "12px" }}>
-                    Teléfono
+                    Teléfono *
                   </label>
                   <input
                     type="tel"
                     value={contactoForm.telefono}
                     onChange={(e) => setContactoForm({...contactoForm, telefono: e.target.value})}
                     placeholder="+591 XXX XXX"
+                    required
                     style={{
                       width: "100%",
                       padding: "8px",
@@ -1727,7 +1592,7 @@ export default function Proveedores() {
               </div>
               <button
                 onClick={agregarContactoProveedor}
-                disabled={!contactoForm.nombre_contacto || actionLoading === 'agregar-contacto'}
+                disabled={!contactoForm.nombre_contacto || !contactoForm.cargo || !contactoForm.telefono || actionLoading === 'agregar-contacto'}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -1751,7 +1616,6 @@ export default function Proveedores() {
               </button>
             </div>
 
-            {/* Lista de contactos existentes */}
             <div>
               <h4 style={{ color: "#7a3b06", marginBottom: "16px" }}>Contactos Asociados</h4>
               {getContactosProveedor(proveedorSeleccionado.ci_proveedor).length > 0 ? (

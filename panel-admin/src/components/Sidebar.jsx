@@ -14,22 +14,28 @@ export default function Sidebar({ onLogout, empleado }) {
   const [isOpen, setIsOpen] = useState(false);
   const [showRoleInfo, setShowRoleInfo] = useState(false);
 
-  // Definición de permisos por rol - SOLO ADMINISTRADOR VE EL DASHBOARD
+  // Definición de permisos por rol
   const rolePermissions = {
     administrador: [
       "Panel principal", "Roles y cargos", "Sueldos", "Personal", 
       "Inventario", "Productos", "Mesas", "Pedidos", "Ventas", "Proveedores", "Gastos"
     ],
     cajero: [
-      "Ventas", "Gastos"
+      "Panel principal", "Ventas", "Gastos"
     ],
     mesero: [
-      "Mesas", "Pedidos"
+      "Panel principal", "Mesas", "Pedidos"
     ],
     usuario: [
-      // Usuario no ve nada
+      "Panel principal"
     ]
   };
+
+  // Todos los permisos disponibles en el sistema
+  const allPermissions = [
+    "Panel principal", "Roles y cargos", "Sueldos", "Personal", 
+    "Inventario", "Productos", "Mesas", "Pedidos", "Ventas", "Proveedores", "Gastos"
+  ];
 
   useEffect(() => {
     const checkScreenSize = () => {
@@ -44,13 +50,13 @@ export default function Sidebar({ onLogout, empleado }) {
     return () => window.removeEventListener("resize", checkScreenSize);
   }, []);
 
-  // Items del menú con permisos - SOLO ADMINISTRADOR VE EL DASHBOARD
+  // Items del menú con permisos
   const menuItems = [
     { 
       label: "Panel principal", 
       icon: Home, 
       path: "/",
-      roles: ["administrador"], // SOLO ADMINISTRADOR
+      roles: ["administrador", "cajero", "mesero", "usuario"],
       description: "Dashboard y estadísticas"
     },
     { 
@@ -129,17 +135,14 @@ export default function Sidebar({ onLogout, empleado }) {
   const getEmpleadoRol = () => {
     if (!empleado) return "usuario";
     
-    // 1. Si viene con join de roles (roles: { nombre: 'administrador' })
     if (empleado.roles && empleado.roles.nombre) {
       return empleado.roles.nombre.toLowerCase();
     }
     
-    // 2. Si viene el campo rol directo
     if (empleado.rol) {
       return empleado.rol.toLowerCase();
     }
     
-    // 3. Si viene id_rol
     if (empleado.id_rol) {
       const rolMap = {
         1: "administrador",
@@ -150,7 +153,6 @@ export default function Sidebar({ onLogout, empleado }) {
       return rolMap[empleado.id_rol] || "usuario";
     }
     
-    // 4. Si no se encuentra nada
     return "usuario";
   };
 
@@ -161,19 +163,13 @@ export default function Sidebar({ onLogout, empleado }) {
     item.roles.includes(empleadoRol)
   );
 
-  // Redirigir si el usuario no es administrador y está en el dashboard
-  useEffect(() => {
-    if (location.pathname === "/" && empleadoRol !== "administrador") {
-      // Redirigir al primer módulo disponible para su rol
-      const primerModulo = filteredItems[0];
-      if (primerModulo) {
-        navigate(primerModulo.path);
-      } else {
-        // Si no tiene ningún módulo, redirigir a una página de acceso denegado
-        navigate("/acceso-denegado");
-      }
-    }
-  }, [location.pathname, empleadoRol, filteredItems, navigate]);
+  // Obtener permisos NO disponibles para este rol
+  const getUnavailablePermissions = () => {
+    const availablePerms = rolePermissions[empleadoRol] || [];
+    return allPermissions.filter(perm => !availablePerms.includes(perm));
+  };
+
+  const unavailablePermissions = getUnavailablePermissions();
 
   const handleLogout = () => {
     if (window.confirm("¿Estás seguro de que deseas cerrar sesión?")) {
@@ -372,27 +368,42 @@ export default function Sidebar({ onLogout, empleado }) {
             </div>
           </div>
 
-          {/* Información de permisos del rol */}
+          {/* Información de permisos del rol - ACTUALIZADO */}
           {showRoleInfo && (
             <div style={sidebarStyles.rolePermissionsInfo}>
-              <div style={sidebarStyles.permissionsHeader}>
-                <Settings size={14} />
-                <span>Permisos disponibles - {empleadoRol.toUpperCase()}</span>
+              {/* Permisos disponibles (VERDE) */}
+              <div>
+                <div style={sidebarStyles.permissionsHeader}>
+                  <Settings size={14} />
+                  <span>Permisos disponibles - {empleadoRol.toUpperCase()}</span>
+                </div>
+                <ul style={sidebarStyles.permissionsList}>
+                  {rolePermissions[empleadoRol]?.map((permiso, index) => (
+                    <li key={`available-${index}`} style={sidebarStyles.permissionItem}>
+                      <div style={sidebarStyles.permissionDotAvailable}></div>
+                      <span style={sidebarStyles.permissionTextAvailable}>{permiso}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <ul style={sidebarStyles.permissionsList}>
-                {rolePermissions[empleadoRol]?.map((permiso, index) => (
-                  <li key={index} style={sidebarStyles.permissionItem}>
-                    <div style={sidebarStyles.permissionDot}></div>
-                    {permiso}
-                  </li>
-                ))}
-                {rolePermissions[empleadoRol]?.length === 0 && (
-                  <li style={sidebarStyles.permissionItem}>
-                    <div style={sidebarStyles.permissionDot}></div>
-                    Sin permisos asignados
-                  </li>
-                )}
-              </ul>
+
+              {/* Permisos NO disponibles (ROJO) */}
+              {unavailablePermissions.length > 0 && (
+                <div style={sidebarStyles.unavailableSection}>
+                  <div style={sidebarStyles.permissionsHeader}>
+                    <AlertCircle size={14} />
+                    <span>Permisos restringidos</span>
+                  </div>
+                  <ul style={sidebarStyles.permissionsList}>
+                    {unavailablePermissions.map((permiso, index) => (
+                      <li key={`unavailable-${index}`} style={sidebarStyles.permissionItem}>
+                        <div style={sidebarStyles.permissionDotUnavailable}></div>
+                        <span style={sidebarStyles.permissionTextUnavailable}>{permiso}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -404,7 +415,7 @@ export default function Sidebar({ onLogout, empleado }) {
               <AlertCircle size={32} style={sidebarStyles.noPermissionsIcon} />
               <p style={sidebarStyles.noPermissionsTitle}>Sin permisos</p>
               <p style={sidebarStyles.noPermissionsDescription}>
-                Tu rol de {empleadoRol} no tiene acceso a las funciones del sistema.
+                Tu rol de usuario no tiene acceso a las funciones del sistema.
               </p>
             </div>
           ) : (
@@ -560,7 +571,14 @@ const sidebarStyles = {
     padding: "15px",
     background: "rgba(255, 255, 255, 0.6)",
     borderRadius: "8px",
-    border: "1px solid rgba(122, 59, 6, 0.1)"
+    border: "1px solid rgba(122, 59, 6, 0.1)",
+    maxHeight: "300px",
+    overflowY: "auto"
+  },
+  unavailableSection: {
+    marginTop: "15px",
+    paddingTop: "15px",
+    borderTop: "1px solid rgba(220, 53, 69, 0.2)"
   },
   permissionsHeader: {
     display: "flex",
@@ -584,12 +602,27 @@ const sidebarStyles = {
     fontSize: "11px",
     color: "#6d4611"
   },
-  permissionDot: {
+  permissionDotAvailable: {
     width: "6px",
     height: "6px",
     borderRadius: "50%",
     background: "#28a745",
     flexShrink: 0
+  },
+  permissionDotUnavailable: {
+    width: "6px",
+    height: "6px",
+    borderRadius: "50%",
+    background: "#dc3545",
+    flexShrink: 0
+  },
+  permissionTextAvailable: {
+    color: "#28a745",
+    fontWeight: 500
+  },
+  permissionTextUnavailable: {
+    color: "#dc3545",
+    fontWeight: 500
   },
   sidebarNav: {
     flex: 1,
