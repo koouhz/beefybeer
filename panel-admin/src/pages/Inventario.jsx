@@ -24,7 +24,12 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   RotateCcw,
-  Zap
+  Zap,
+  Clock,
+  CalendarX,
+  ShieldAlert,
+  Ban,
+  AlertOctagon
 } from "lucide-react";
 
 export default function Inventario() {
@@ -42,7 +47,7 @@ export default function Inventario() {
   const [editingId, setEditingId] = useState(null);
   const [viewMode, setViewMode] = useState("lista");
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
-  const [actionType, setActionType] = useState("entrada"); // "entrada" o "salida"
+  const [actionType, setActionType] = useState("entrada");
 
   const [form, setForm] = useState({
     id_producto: '',
@@ -66,6 +71,11 @@ export default function Inventario() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filtroCategoria, setFiltroCategoria] = useState("todos");
   const [filtroStock, setFiltroStock] = useState("todos");
+
+  // Nuevos estados para validaciones
+  const [formErrors, setFormErrors] = useState({});
+  const [productFormErrors, setProductFormErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     cargarDatos();
@@ -144,6 +154,136 @@ export default function Inventario() {
     }
   };
 
+  // Validación de fecha de vencimiento
+  const validarFechaVencimiento = (fecha) => {
+    if (!fecha) return true; // Fecha opcional
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const fechaVencimiento = new Date(fecha);
+    return fechaVencimiento >= hoy;
+  };
+
+  // Verificar si un producto está vencido
+  const productoEstaVencido = (producto) => {
+    if (!producto.fecha_vencimiento) return false;
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const fechaVencimiento = new Date(producto.fecha_vencimiento);
+    return fechaVencimiento < hoy;
+  };
+
+  // Validación mejorada de producto
+  const validateProducto = (producto) => {
+    const errors = {};
+
+    if (!producto.nombre.trim()) {
+      errors.nombre = "El nombre del producto es requerido";
+    } else if (producto.nombre.trim().length < 2) {
+      errors.nombre = "El nombre debe tener al menos 2 caracteres";
+    } else if (producto.nombre.trim().length > 100) {
+      errors.nombre = "El nombre no puede exceder 100 caracteres";
+    }
+
+    if (!producto.precio || parseFloat(producto.precio) <= 0) {
+      errors.precio = "El precio debe ser mayor a 0";
+    } else if (parseFloat(producto.precio) > 1000000) {
+      errors.precio = "El precio no puede ser mayor a 1,000,000 BOB";
+    }
+
+    if (!producto.id_categoriaproducto) {
+      errors.id_categoriaproducto = "Debe seleccionar una categoría";
+    }
+
+    if (producto.fecha_vencimiento && !validarFechaVencimiento(producto.fecha_vencimiento)) {
+      errors.fecha_vencimiento = "La fecha de vencimiento no puede ser anterior a hoy";
+    }
+
+    if (producto.descripcion && producto.descripcion.length > 500) {
+      errors.descripcion = "La descripción no puede exceder 500 caracteres";
+    }
+
+    return errors;
+  };
+
+  // Validación mejorada de inventario
+  const validateInventario = (item) => {
+    const errors = {};
+
+    if (!item.id_producto) {
+      errors.id_producto = "Debe seleccionar un producto";
+    }
+
+    if (!item.fecha) {
+      errors.fecha = "La fecha es requerida";
+    } else {
+      const fechaMovimiento = new Date(item.fecha);
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      
+      if (fechaMovimiento > hoy) {
+        errors.fecha = "La fecha no puede ser futura";
+      }
+    }
+
+    const entradas = parseInt(item.entradas) || 0;
+    const salidas = parseInt(item.salidas) || 0;
+    
+    if (entradas < 0) {
+      errors.entradas = "Las entradas no pueden ser negativas";
+    }
+    
+    if (salidas < 0) {
+      errors.salidas = "Las salidas no pueden ser negativas";
+    }
+    
+    if (entradas === 0 && salidas === 0) {
+      errors.entradas = "Debe registrar al menos una entrada o salida";
+      errors.salidas = "Debe registrar al menos una entrada o salida";
+    }
+
+    // Validar que no se vendan más productos de los que hay en stock
+    if (salidas > 0 && item.id_producto) {
+      const stockDisponible = calcularStockDisponible(parseInt(item.id_producto));
+      if (salidas > stockDisponible) {
+        errors.salidas = `No hay suficiente stock. Disponible: ${stockDisponible}`;
+      }
+
+      // Validar que no se vendan productos vencidos
+      const producto = productos.find(p => p.id_producto === parseInt(item.id_producto));
+      if (producto && productoEstaVencido(producto)) {
+        errors.salidas = "No se pueden vender productos vencidos";
+      }
+    }
+
+    // Validar stock mínimo y máximo
+    const stockMinimo = parseInt(item.stock_minimo) || 0;
+    const stockMaximo = parseInt(item.stock_maximo) || 0;
+    
+    if (stockMinimo < 0) {
+      errors.stock_minimo = "El stock mínimo no puede ser negativo";
+    }
+    
+    if (stockMaximo < 0) {
+      errors.stock_maximo = "El stock máximo no puede ser negativo";
+    }
+    
+    if (stockMaximo > 0 && stockMinimo > stockMaximo) {
+      errors.stock_minimo = "El stock mínimo no puede ser mayor al stock máximo";
+      errors.stock_maximo = "El stock máximo no puede ser menor al stock mínimo";
+    }
+
+    // Validar límites razonables
+    if (entradas > 10000) {
+      errors.entradas = "Las entradas no pueden ser mayores a 10,000 unidades";
+    }
+
+    if (salidas > 10000) {
+      errors.salidas = "Las salidas no pueden ser mayores a 10,000 unidades";
+    }
+
+    return errors;
+  };
+
   // Cálculo FIFO - Stock disponible actual
   const calcularStockDisponible = (idProducto) => {
     const movimientos = inventario.filter(item => item.id_producto === idProducto);
@@ -196,50 +336,17 @@ export default function Inventario() {
     }, 0);
   };
 
-  // Validaciones mejoradas
-  const validateInventario = (item) => {
-    if (!item.id_producto) throw new Error("Debe seleccionar un producto");
-    if (!item.fecha) throw new Error("La fecha es requerida");
-    
-    const entradas = parseInt(item.entradas) || 0;
-    const salidas = parseInt(item.salidas) || 0;
-    
-    if (entradas < 0) throw new Error("Las entradas no pueden ser negativas");
-    if (salidas < 0) throw new Error("Las salidas no pueden ser negativas");
-    
-    if (entradas === 0 && salidas === 0) {
-      throw new Error("Debe registrar al menos una entrada o salida");
-    }
-
-    // Validar que no se vendan más productos de los que hay en stock
-    if (salidas > 0) {
-      const stockDisponible = calcularStockDisponible(parseInt(item.id_producto));
-      if (salidas > stockDisponible) {
-        throw new Error(`No hay suficiente stock. Disponible: ${stockDisponible}, Intentas vender: ${salidas}`);
-      }
-    }
-
-    // Validar stock mínimo y máximo
-    const stockMinimo = parseInt(item.stock_minimo) || 0;
-    const stockMaximo = parseInt(item.stock_maximo) || 0;
-    
-    if (stockMinimo < 0) throw new Error("El stock mínimo no puede ser negativo");
-    if (stockMaximo < 0) throw new Error("El stock máximo no puede ser negativo");
-    if (stockMaximo > 0 && stockMinimo > stockMaximo) {
-      throw new Error("El stock mínimo no puede ser mayor al stock máximo");
-    }
-  };
-
-  const validateProducto = (producto) => {
-    if (!producto.nombre.trim()) throw new Error("El nombre del producto es requerido");
-    if (!producto.precio || parseFloat(producto.precio) <= 0) throw new Error("El precio debe ser mayor a 0");
-    if (!producto.id_categoriaproducto) throw new Error("Debe seleccionar una categoría");
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      validateInventario(form);
+      setIsSubmitting(true);
+      setFormErrors({});
+
+      const errors = validateInventario(form);
+      if (Object.keys(errors).length > 0) {
+        setFormErrors(errors);
+        throw new Error("Por favor corrige los errores en el formulario");
+      }
       
       const entradas = parseInt(form.entradas) || 0;
       const salidas = parseInt(form.salidas) || 0;
@@ -274,14 +381,25 @@ export default function Inventario() {
       resetForm();
       cargarDatos();
     } catch (error) {
-      showMessage(error.message);
+      if (!error.message.includes("Por favor corrige")) {
+        showMessage(error.message);
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleProductSubmit = async (e) => {
     e.preventDefault();
     try {
-      validateProducto(productForm);
+      setIsSubmitting(true);
+      setProductFormErrors({});
+
+      const errors = validateProducto(productForm);
+      if (Object.keys(errors).length > 0) {
+        setProductFormErrors(errors);
+        throw new Error("Por favor corrige los errores en el formulario");
+      }
 
       const productoData = {
         nombre: productForm.nombre.trim(),
@@ -320,7 +438,11 @@ export default function Inventario() {
       resetProductForm();
       cargarDatos();
     } catch (error) {
-      showMessage(error.message);
+      if (!error.message.includes("Por favor corrige")) {
+        showMessage(error.message);
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -340,14 +462,27 @@ export default function Inventario() {
     setActionType("entrada");
   };
 
-  // Función para gestión rápida de stock
+  // Función para gestión rápida de stock con validaciones
   const gestionRapidaStock = async (producto, tipo, cantidad = 1) => {
     try {
+      // Validar que el producto no esté vencido para salidas
+      if (tipo === "salida" && productoEstaVencido(producto)) {
+        throw new Error("No se puede vender un producto vencido");
+      }
+
       const stockActual = calcularStockDisponible(producto.id_producto);
       const configuracion = obtenerConfiguracionStock(producto.id_producto);
       
       if (tipo === "salida" && cantidad > stockActual) {
         throw new Error(`No hay suficiente stock. Disponible: ${stockActual}`);
+      }
+
+      if (cantidad <= 0) {
+        throw new Error("La cantidad debe ser mayor a 0");
+      }
+
+      if (cantidad > 1000) {
+        throw new Error("La cantidad no puede ser mayor a 1,000 unidades en movimiento rápido");
       }
 
       const inventarioData = {
@@ -374,29 +509,6 @@ export default function Inventario() {
     }
   };
 
-  // Función para descontar stock por venta
-  const descontarStockVenta = async (idPedido) => {
-    try {
-      const { data: pedidoProductos, error } = await supabase
-        .from('pedido_producto')
-        .select('*')
-        .eq('id_pedido', idPedido);
-
-      if (error) throw error;
-
-      for (const item of pedidoProductos) {
-        const producto = productos.find(p => p.id_producto === item.id_producto);
-        if (producto) {
-          await gestionRapidaStock(producto, "salida", item.cantidad);
-        }
-      }
-
-      showMessage("Stock descontado por venta exitosamente", "success");
-    } catch (error) {
-      showMessage(`Error descontando stock: ${error.message}`);
-    }
-  };
-
   const editarRegistro = (item) => {
     setForm({
       id_producto: item.id_producto.toString(),
@@ -409,6 +521,7 @@ export default function Inventario() {
     });
     setEditingId(item.id_inventario);
     setShowForm(true);
+    setFormErrors({});
   };
 
   const verDetalleProducto = (producto) => {
@@ -417,7 +530,7 @@ export default function Inventario() {
   };
 
   const eliminarRegistro = async (id) => {
-    if (window.confirm('¿Estás seguro de eliminar este registro de inventario?')) {
+    if (window.confirm('¿Estás seguro de eliminar este registro de inventario?\nEsta acción no se puede deshacer.')) {
       try {
         const { error } = await supabase
           .from('inventario')
@@ -445,6 +558,7 @@ export default function Inventario() {
     setEditingId(null);
     setShowForm(false);
     setActionType("entrada");
+    setFormErrors({});
   };
 
   const resetProductForm = () => {
@@ -456,15 +570,22 @@ export default function Inventario() {
       id_categoriaproducto: ''
     });
     setShowProductForm(false);
+    setProductFormErrors({});
   };
 
   // Función para exportar a Excel
   const exportarAExcel = () => {
+    if (productos.length === 0) {
+      showMessage("No hay datos para exportar", "error");
+      return;
+    }
+
     const datosExportar = productos.map(producto => {
       const stockActual = calcularStockDisponible(producto.id_producto);
       const configuracion = obtenerConfiguracionStock(producto.id_producto);
       const ventasHoy = calcularVentasHoy(producto.id_producto);
       const totalVentas = calcularTotalVentas(producto.id_producto);
+      const vencido = productoEstaVencido(producto);
       
       return {
         'Producto': producto.nombre || 'N/A',
@@ -475,9 +596,11 @@ export default function Inventario() {
         'Ventas Hoy': ventasHoy,
         'Total Ventas': totalVentas,
         'Precio': producto.precio,
-        'Estado': stockActual <= configuracion.stock_minimo ? 'STOCK BAJO' : 
+        'Estado': vencido ? 'VENCIDO' : 
+                  stockActual <= configuracion.stock_minimo ? 'STOCK BAJO' : 
                   (configuracion.stock_maximo > 0 && stockActual > configuracion.stock_maximo) ? 'STOCK ALTO' : 'NORMAL',
-        'En Inventario': inventario.some(item => item.id_producto === producto.id_producto) ? 'SÍ' : 'NO'
+        'En Inventario': inventario.some(item => item.id_producto === producto.id_producto) ? 'SÍ' : 'NO',
+        'Vencimiento': producto.fecha_vencimiento || 'N/A'
       };
     });
 
@@ -510,18 +633,20 @@ export default function Inventario() {
 
     const stockActual = calcularStockDisponible(producto.id_producto);
     const configuracion = obtenerConfiguracionStock(producto.id_producto);
+    const vencido = productoEstaVencido(producto);
     
     const matchesStock = filtroStock === "todos" || 
       (filtroStock === "bajo" && stockActual <= configuracion.stock_minimo) ||
       (filtroStock === "normal" && stockActual > configuracion.stock_minimo && 
        (configuracion.stock_maximo === 0 || stockActual <= configuracion.stock_maximo)) ||
       (filtroStock === "alto" && configuracion.stock_maximo > 0 && stockActual > configuracion.stock_maximo) ||
-      (filtroStock === "sin-inventario" && !inventario.some(i => i.id_producto === producto.id_producto));
+      (filtroStock === "sin-inventario" && !inventario.some(i => i.id_producto === producto.id_producto)) ||
+      (filtroStock === "vencido" && vencido);
 
     return matchesSearch && matchesCategoria && matchesStock;
   });
 
-  // Estadísticas
+  // Estadísticas mejoradas
   const estadisticas = {
     totalProductos: productos.length,
     productosEnInventario: productos.filter(p => inventario.some(i => i.id_producto === p.id_producto)).length,
@@ -531,6 +656,7 @@ export default function Inventario() {
       return stock <= configuracion.stock_minimo;
     }).length,
     productosSinInventario: productos.filter(p => !inventario.some(i => i.id_producto === p.id_producto)).length,
+    productosVencidos: productos.filter(producto => productoEstaVencido(producto)).length,
     valorTotalInventario: productos.reduce((total, producto) => {
       const stock = calcularStockDisponible(producto.id_producto);
       return total + (stock * (producto.precio || 0));
@@ -546,6 +672,16 @@ export default function Inventario() {
       .filter(item => item.id_producto === idProducto)
       .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
   };
+
+  // Componente para mostrar errores de formulario
+  const ErrorMessage = ({ error }) => (
+    error ? (
+      <div style={styles.errorMessage}>
+        <AlertOctagon size={12} />
+        <span>{error}</span>
+      </div>
+    ) : null
+  );
 
   if (loading) {
     return (
@@ -601,7 +737,15 @@ export default function Inventario() {
           <div style={styles.detalleContent}>
             <div style={styles.detalleCard}>
               <div style={styles.productoInfo}>
-                <h3 style={styles.productoNombre}>{productoSeleccionado.nombre}</h3>
+                <div style={styles.productoHeader}>
+                  <h3 style={styles.productoNombre}>{productoSeleccionado.nombre}</h3>
+                  {productoEstaVencido(productoSeleccionado) && (
+                    <span style={styles.vencidoBadge}>
+                      <CalendarX size={16} />
+                      VENCIDO
+                    </span>
+                  )}
+                </div>
                 <p style={styles.descripcion}>{productoSeleccionado.descripcion}</p>
                 
                 <div style={styles.infoGrid}>
@@ -643,6 +787,20 @@ export default function Inventario() {
                       {calcularTotalVentas(productoSeleccionado.id_producto)} unidades
                     </span>
                   </div>
+                  {productoSeleccionado.fecha_vencimiento && (
+                    <div style={styles.infoItem}>
+                      <label style={styles.infoLabel}>Fecha Vencimiento</label>
+                      <span style={{
+                        ...styles.infoValue,
+                        ...(productoEstaVencido(productoSeleccionado) ? styles.vencidoText : {})
+                      }}>
+                        {new Date(productoSeleccionado.fecha_vencimiento).toLocaleDateString()}
+                        {productoEstaVencido(productoSeleccionado) && (
+                          <span style={styles.vencidoIndicator}> • Vencido</span>
+                        )}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -741,6 +899,7 @@ export default function Inventario() {
                 <option value="bajo">Stock Bajo</option>
                 <option value="normal">Stock Normal</option>
                 <option value="alto">Stock Alto</option>
+                <option value="vencido">Productos Vencidos</option>
                 <option value="sin-inventario">Sin Inventario</option>
               </select>
             </div>
@@ -785,6 +944,15 @@ export default function Inventario() {
               </div>
             </div>
             <div style={styles.statCard}>
+              <div style={{...styles.statIcon, ...styles.statIconDanger}}>
+                <CalendarX size={24} />
+              </div>
+              <div style={styles.statInfo}>
+                <div style={styles.statValue}>{estadisticas.productosVencidos}</div>
+                <div style={styles.statLabel}>Productos Vencidos</div>
+              </div>
+            </div>
+            <div style={styles.statCard}>
               <div style={{...styles.statIcon, ...styles.statIconValor}}>
                 <TrendingUp size={24} />
               </div>
@@ -798,18 +966,19 @@ export default function Inventario() {
                 <div style={styles.statLabel}>Valor Total</div>
               </div>
             </div>
-            <div style={styles.statCard}>
-              <div style={{...styles.statIcon, ...styles.statIconVentas}}>
-                <ShoppingCart size={24} />
-              </div>
-              <div style={styles.statInfo}>
-                <div style={styles.statValue}>{estadisticas.ventasHoy}</div>
-                <div style={styles.statLabel}>Ventas Hoy</div>
-              </div>
-            </div>
           </div>
 
           {/* Alertas importantes */}
+          {estadisticas.productosVencidos > 0 && (
+            <div style={{...styles.alert, ...styles.alertDanger}}>
+              <ShieldAlert size={20} />
+              <span>
+                <strong>ALERTA CRÍTICA:</strong> {estadisticas.productosVencidos} producto(s) vencido(s). 
+                No se pueden vender y deben ser retirados del inventario.
+              </span>
+            </div>
+          )}
+
           {estadisticas.productosConStockBajo > 0 && (
             <div style={{...styles.alert, ...styles.alertWarning}}>
               <AlertTriangle size={20} />
@@ -862,11 +1031,21 @@ export default function Inventario() {
                       <input
                         type="text"
                         value={productForm.nombre}
-                        onChange={(e) => setProductForm({...productForm, nombre: e.target.value})}
+                        onChange={(e) => {
+                          setProductForm({...productForm, nombre: e.target.value});
+                          if (productFormErrors.nombre) {
+                            setProductFormErrors({...productFormErrors, nombre: ''});
+                          }
+                        }}
                         required
-                        style={styles.formInput}
+                        style={{
+                          ...styles.formInput,
+                          ...(productFormErrors.nombre && styles.inputError)
+                        }}
                         placeholder="Ej: Hamburguesa Clásica"
+                        maxLength={100}
                       />
+                      <ErrorMessage error={productFormErrors.nombre} />
                     </div>
                     <div style={styles.formGroup}>
                       <label style={styles.formLabel}>Precio (BOB) *</label>
@@ -874,12 +1053,22 @@ export default function Inventario() {
                         type="number"
                         step="0.01"
                         min="0"
+                        max="1000000"
                         value={productForm.precio}
-                        onChange={(e) => setProductForm({...productForm, precio: e.target.value})}
+                        onChange={(e) => {
+                          setProductForm({...productForm, precio: e.target.value});
+                          if (productFormErrors.precio) {
+                            setProductFormErrors({...productFormErrors, precio: ''});
+                          }
+                        }}
                         required
-                        style={styles.formInput}
+                        style={{
+                          ...styles.formInput,
+                          ...(productFormErrors.precio && styles.inputError)
+                        }}
                         placeholder="0.00"
                       />
+                      <ErrorMessage error={productFormErrors.precio} />
                     </div>
                   </div>
 
@@ -888,9 +1077,17 @@ export default function Inventario() {
                       <label style={styles.formLabel}>Categoría *</label>
                       <select
                         value={productForm.id_categoriaproducto}
-                        onChange={(e) => setProductForm({...productForm, id_categoriaproducto: e.target.value})}
+                        onChange={(e) => {
+                          setProductForm({...productForm, id_categoriaproducto: e.target.value});
+                          if (productFormErrors.id_categoriaproducto) {
+                            setProductFormErrors({...productFormErrors, id_categoriaproducto: ''});
+                          }
+                        }}
                         required
-                        style={styles.formSelect}
+                        style={{
+                          ...styles.formSelect,
+                          ...(productFormErrors.id_categoriaproducto && styles.inputError)
+                        }}
                       >
                         <option value="">Seleccionar categoría</option>
                         {categorias.map(categoria => (
@@ -899,35 +1096,85 @@ export default function Inventario() {
                           </option>
                         ))}
                       </select>
+                      <ErrorMessage error={productFormErrors.id_categoriaproducto} />
                     </div>
                     <div style={styles.formGroup}>
-                      <label style={styles.formLabel}>Fecha de Vencimiento</label>
+                      <label style={styles.formLabel}>
+                        Fecha de Vencimiento
+                        {productForm.fecha_vencimiento && !validarFechaVencimiento(productForm.fecha_vencimiento) && (
+                          <span style={styles.warningText}> (No puede ser fecha pasada)</span>
+                        )}
+                      </label>
                       <input
                         type="date"
                         value={productForm.fecha_vencimiento}
-                        onChange={(e) => setProductForm({...productForm, fecha_vencimiento: e.target.value})}
-                        style={styles.formInput}
+                        onChange={(e) => {
+                          setProductForm({...productForm, fecha_vencimiento: e.target.value});
+                          if (productFormErrors.fecha_vencimiento) {
+                            setProductFormErrors({...productFormErrors, fecha_vencimiento: ''});
+                          }
+                        }}
+                        style={{
+                          ...styles.formInput,
+                          ...(productFormErrors.fecha_vencimiento && styles.inputError)
+                        }}
+                        min={new Date().toISOString().split('T')[0]}
                       />
+                      <ErrorMessage error={productFormErrors.fecha_vencimiento} />
                     </div>
                   </div>
 
                   <div style={styles.formGroup}>
-                    <label style={styles.formLabel}>Descripción</label>
+                    <label style={styles.formLabel}>
+                      Descripción 
+                      <span style={styles.charCount}>
+                        ({productForm.descripcion?.length || 0}/500)
+                      </span>
+                    </label>
                     <textarea
                       value={productForm.descripcion}
-                      onChange={(e) => setProductForm({...productForm, descripcion: e.target.value})}
+                      onChange={(e) => {
+                        if (e.target.value.length <= 500) {
+                          setProductForm({...productForm, descripcion: e.target.value});
+                          if (productFormErrors.descripcion) {
+                            setProductFormErrors({...productFormErrors, descripcion: ''});
+                          }
+                        }
+                      }}
                       placeholder="Descripción del producto..."
                       rows="3"
-                      style={styles.formTextarea}
+                      style={{
+                        ...styles.formTextarea,
+                        ...(productFormErrors.descripcion && styles.inputError)
+                      }}
                     />
+                    <ErrorMessage error={productFormErrors.descripcion} />
                   </div>
 
                   <div style={styles.formActions}>
-                    <button type="submit" style={{...styles.btn, ...styles.btnSuccess}}>
-                      <Save size={16} />
-                      Crear Producto
+                    <button 
+                      type="submit" 
+                      style={{...styles.btn, ...styles.btnSuccess}}
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader size={16} style={{ animation: "spin 1s linear infinite" }} />
+                          Creando...
+                        </>
+                      ) : (
+                        <>
+                          <Save size={16} />
+                          Crear Producto
+                        </>
+                      )}
                     </button>
-                    <button type="button" onClick={resetProductForm} style={{...styles.btn, ...styles.btnCancel}}>
+                    <button 
+                      type="button" 
+                      onClick={resetProductForm} 
+                      style={{...styles.btn, ...styles.btnCancel}}
+                      disabled={isSubmitting}
+                    >
                       Cancelar
                     </button>
                   </div>
@@ -947,28 +1194,56 @@ export default function Inventario() {
                       <label style={styles.formLabel}>Producto *</label>
                       <select
                         value={form.id_producto}
-                        onChange={(e) => setForm({...form, id_producto: e.target.value})}
+                        onChange={(e) => {
+                          setForm({...form, id_producto: e.target.value});
+                          if (formErrors.id_producto) {
+                            setFormErrors({...formErrors, id_producto: ''});
+                          }
+                        }}
                         required
-                        style={styles.formSelect}
+                        style={{
+                          ...styles.formSelect,
+                          ...(formErrors.id_producto && styles.inputError)
+                        }}
                       >
                         <option value="">Seleccionar producto</option>
-                        {productos.map(producto => (
-                          <option key={producto.id_producto} value={producto.id_producto}>
-                            {producto.nombre} - Stock: {calcularStockDisponible(producto.id_producto)}
-                            {!inventario.some(i => i.id_producto === producto.id_producto) && ' (Sin inventario)'}
-                          </option>
-                        ))}
+                        {productos.map(producto => {
+                          const vencido = productoEstaVencido(producto);
+                          return (
+                            <option 
+                              key={producto.id_producto} 
+                              value={producto.id_producto}
+                              disabled={vencido && form.salidas > 0}
+                              style={vencido ? {color: '#dc3545'} : {}}
+                            >
+                              {producto.nombre} - Stock: {calcularStockDisponible(producto.id_producto)}
+                              {vencido && ' (VENCIDO)'}
+                              {!inventario.some(i => i.id_producto === producto.id_producto) && ' (Sin inventario)'}
+                            </option>
+                          );
+                        })}
                       </select>
+                      <ErrorMessage error={formErrors.id_producto} />
                     </div>
                     <div style={styles.formGroup}>
                       <label style={styles.formLabel}>Fecha *</label>
                       <input
                         type="date"
                         value={form.fecha}
-                        onChange={(e) => setForm({...form, fecha: e.target.value})}
+                        onChange={(e) => {
+                          setForm({...form, fecha: e.target.value});
+                          if (formErrors.fecha) {
+                            setFormErrors({...formErrors, fecha: ''});
+                          }
+                        }}
                         required
-                        style={styles.formInput}
+                        style={{
+                          ...styles.formInput,
+                          ...(formErrors.fecha && styles.inputError)
+                        }}
+                        max={new Date().toISOString().split('T')[0]}
                       />
+                      <ErrorMessage error={formErrors.fecha} />
                     </div>
                   </div>
 
@@ -978,22 +1253,44 @@ export default function Inventario() {
                       <input
                         type="number"
                         value={form.entradas}
-                        onChange={(e) => setForm({...form, entradas: e.target.value})}
+                        onChange={(e) => {
+                          const value = Math.max(0, parseInt(e.target.value) || 0);
+                          setForm({...form, entradas: value});
+                          if (formErrors.entradas) {
+                            setFormErrors({...formErrors, entradas: ''});
+                          }
+                        }}
                         min="0"
+                        max="10000"
                         placeholder="0"
-                        style={styles.formInput}
+                        style={{
+                          ...styles.formInput,
+                          ...(formErrors.entradas && styles.inputError)
+                        }}
                       />
+                      <ErrorMessage error={formErrors.entradas} />
                     </div>
                     <div style={styles.formGroup}>
                       <label style={styles.formLabel}>Salidas</label>
                       <input
                         type="number"
                         value={form.salidas}
-                        onChange={(e) => setForm({...form, salidas: e.target.value})}
+                        onChange={(e) => {
+                          const value = Math.max(0, parseInt(e.target.value) || 0);
+                          setForm({...form, salidas: value});
+                          if (formErrors.salidas) {
+                            setFormErrors({...formErrors, salidas: ''});
+                          }
+                        }}
                         min="0"
+                        max="10000"
                         placeholder="0"
-                        style={styles.formInput}
+                        style={{
+                          ...styles.formInput,
+                          ...(formErrors.salidas && styles.inputError)
+                        }}
                       />
+                      <ErrorMessage error={formErrors.salidas} />
                     </div>
                   </div>
 
@@ -1003,22 +1300,42 @@ export default function Inventario() {
                       <input
                         type="number"
                         value={form.stock_minimo}
-                        onChange={(e) => setForm({...form, stock_minimo: e.target.value})}
+                        onChange={(e) => {
+                          const value = Math.max(0, parseInt(e.target.value) || 0);
+                          setForm({...form, stock_minimo: value});
+                          if (formErrors.stock_minimo) {
+                            setFormErrors({...formErrors, stock_minimo: ''});
+                          }
+                        }}
                         min="0"
                         placeholder="0"
-                        style={styles.formInput}
+                        style={{
+                          ...styles.formInput,
+                          ...(formErrors.stock_minimo && styles.inputError)
+                        }}
                       />
+                      <ErrorMessage error={formErrors.stock_minimo} />
                     </div>
                     <div style={styles.formGroup}>
                       <label style={styles.formLabel}>Stock Máximo</label>
                       <input
                         type="number"
                         value={form.stock_maximo}
-                        onChange={(e) => setForm({...form, stock_maximo: e.target.value})}
+                        onChange={(e) => {
+                          const value = Math.max(0, parseInt(e.target.value) || 0);
+                          setForm({...form, stock_maximo: value});
+                          if (formErrors.stock_maximo) {
+                            setFormErrors({...formErrors, stock_maximo: ''});
+                          }
+                        }}
                         min="0"
                         placeholder="0"
-                        style={styles.formInput}
+                        style={{
+                          ...styles.formInput,
+                          ...(formErrors.stock_maximo && styles.inputError)
+                        }}
                       />
+                      <ErrorMessage error={formErrors.stock_maximo} />
                     </div>
                   </div>
 
@@ -1031,6 +1348,13 @@ export default function Inventario() {
                         <strong>Stock después del movimiento:</strong> 
                         {calcularStockDisponible(parseInt(form.id_producto)) + parseInt(form.entradas || 0) - parseInt(form.salidas || 0)} unidades
                       </div>
+                      {productos.find(p => p.id_producto === parseInt(form.id_producto)) && 
+                       productoEstaVencido(productos.find(p => p.id_producto === parseInt(form.id_producto))) && (
+                        <div style={{...styles.stockItem, color: '#dc3545', fontWeight: 'bold'}}>
+                          <ShieldAlert size={14} />
+                          ADVERTENCIA: Este producto está vencido - No se permiten salidas
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1042,15 +1366,34 @@ export default function Inventario() {
                       placeholder="Detalles del movimiento..."
                       rows="3"
                       style={styles.formTextarea}
+                      maxLength={500}
                     />
                   </div>
 
                   <div style={styles.formActions}>
-                    <button type="submit" style={{...styles.btn, ...styles.btnSuccess}}>
-                      <Save size={16} />
-                      {editingId ? "Actualizar" : "Guardar Movimiento"}
+                    <button 
+                      type="submit" 
+                      style={{...styles.btn, ...styles.btnSuccess}}
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader size={16} style={{ animation: "spin 1s linear infinite" }} />
+                          {editingId ? "Actualizando..." : "Guardando..."}
+                        </>
+                      ) : (
+                        <>
+                          <Save size={16} />
+                          {editingId ? "Actualizar" : "Guardar Movimiento"}
+                        </>
+                      )}
                     </button>
-                    <button type="button" onClick={resetForm} style={{...styles.btn, ...styles.btnCancel}}>
+                    <button 
+                      type="button" 
+                      onClick={resetForm} 
+                      style={{...styles.btn, ...styles.btnCancel}}
+                      disabled={isSubmitting}
+                    >
                       Cancelar
                     </button>
                   </div>
@@ -1085,12 +1428,17 @@ export default function Inventario() {
                     const configuracion = obtenerConfiguracionStock(producto.id_producto);
                     const enInventario = inventario.some(item => item.id_producto === producto.id_producto);
                     const ventasHoy = calcularVentasHoy(producto.id_producto);
+                    const vencido = productoEstaVencido(producto);
                     
                     let estado = "normal";
                     let estadoLabel = "Normal";
                     let estadoColor = "#28a745";
                     
-                    if (!enInventario) {
+                    if (vencido) {
+                      estado = "vencido";
+                      estadoLabel = "Vencido";
+                      estadoColor = "#dc3545";
+                    } else if (!enInventario) {
                       estado = "sin-inventario";
                       estadoLabel = "Sin Inventario";
                       estadoColor = "#6c757d";
@@ -1107,9 +1455,20 @@ export default function Inventario() {
                     return (
                       <tr key={producto.id_producto}>
                         <td style={styles.td}>
-                          <strong style={styles.productName}>{producto.nombre}</strong>
+                          <div style={styles.productNameContainer}>
+                            <strong style={styles.productName}>{producto.nombre}</strong>
+                            {vencido && <CalendarX size={14} style={{color: '#dc3545', marginLeft: '8px'}} />}
+                          </div>
                           {producto.descripcion && (
                             <div style={styles.productDescription}>{producto.descripcion}</div>
+                          )}
+                          {producto.fecha_vencimiento && (
+                            <div style={{
+                              ...styles.vencimientoText,
+                              color: vencido ? '#dc3545' : '#6c757d'
+                            }}>
+                              Vence: {new Date(producto.fecha_vencimiento).toLocaleDateString()}
+                            </div>
                           )}
                         </td>
                         <td style={styles.td}>{producto.categoria_productos?.nombre || 'N/A'}</td>
@@ -1128,7 +1487,8 @@ export default function Inventario() {
                         <td style={styles.td}>
                           <span style={{
                             ...styles.estadoBadge,
-                            backgroundColor: estado === 'bajo' ? '#fff5f5' : 
+                            backgroundColor: estado === 'vencido' ? '#fff5f5' : 
+                                           estado === 'bajo' ? '#fff5f5' : 
                                            estado === 'alto' ? '#fff3cd' : 
                                            estado === 'sin-inventario' ? '#f8f9fa' : '#e8f5e8',
                             color: estadoColor,
@@ -1159,7 +1519,7 @@ export default function Inventario() {
                                   onClick={() => gestionRapidaStock(producto, "salida", 1)}
                                   style={{...styles.btnSmall, ...styles.btnWarning}}
                                   title="Salida rápida"
-                                  disabled={stockActual <= 0}
+                                  disabled={stockActual <= 0 || vencido}
                                 >
                                   <ArrowUpFromLine size={14} />
                                 </button>
@@ -1276,6 +1636,12 @@ const styles = {
     border: "1px solid #bbdefb",
     color: "#1976d2"
   },
+  alertDanger: {
+    backgroundColor: "#f8d7da",
+    border: "1px solid #f1aeb5",
+    color: "#721c24",
+    fontWeight: "bold"
+  },
   alertClose: {
     marginLeft: "auto",
     background: "none",
@@ -1311,10 +1677,27 @@ const styles = {
   productoInfo: {
     marginBottom: "20px"
   },
+  productoHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    marginBottom: "10px"
+  },
   productoNombre: {
     color: "#7a3b06",
-    marginBottom: "10px",
+    margin: 0,
     fontSize: "24px"
+  },
+  vencidoBadge: {
+    display: "flex",
+    alignItems: "center",
+    gap: "4px",
+    backgroundColor: "#dc3545",
+    color: "white",
+    padding: "4px 8px",
+    borderRadius: "4px",
+    fontSize: "12px",
+    fontWeight: "bold"
   },
   descripcion: {
     color: "#6d4611",
@@ -1349,6 +1732,19 @@ const styles = {
   },
   stockCero: {
     color: "#dc3545"
+  },
+  vencidoText: {
+    color: "#dc3545",
+    fontWeight: "600"
+  },
+  vencimientoText: {
+    fontSize: "12px",
+    marginTop: "4px"
+  },
+  vencidoIndicator: {
+    color: "#dc3545",
+    fontSize: "12px",
+    fontWeight: "bold"
   },
   historialMovimientos: {
     marginTop: "30px"
@@ -1433,13 +1829,13 @@ const styles = {
     background: "#fff3cd",
     color: "#ffc107"
   },
+  statIconDanger: {
+    background: "#f8d7da",
+    color: "#dc3545"
+  },
   statIconValor: {
     background: "#f3e5f5",
     color: "#9c27b0"
-  },
-  statIconVentas: {
-    background: "#e8f5e8",
-    color: "#28a745"
   },
   statInfo: {
     flex: "1"
@@ -1569,7 +1965,10 @@ const styles = {
   },
   stockItem: {
     color: "#1976d2",
-    marginBottom: "8px"
+    marginBottom: "8px",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px"
   },
   formActions: {
     display: "flex",
@@ -1616,6 +2015,10 @@ const styles = {
     padding: "12px",
     border: "1px solid #e9d8b5",
     color: "#6d4611"
+  },
+  productNameContainer: {
+    display: "flex",
+    alignItems: "center"
   },
   productName: {
     display: "block",
@@ -1685,5 +2088,30 @@ const styles = {
     textAlign: "center",
     color: "#6d4611",
     opacity: 0.7
+  },
+  // Nuevos estilos para validaciones
+  errorMessage: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    color: '#dc3545',
+    fontSize: '12px',
+    marginTop: '4px',
+    fontWeight: '500'
+  },
+  inputError: {
+    borderColor: '#dc3545 !important',
+    backgroundColor: '#fff5f5'
+  },
+  warningText: {
+    color: '#dc3545',
+    fontSize: '12px',
+    fontWeight: 'normal'
+  },
+  charCount: {
+    fontSize: '12px',
+    color: '#6c757d',
+    fontWeight: 'normal',
+    marginLeft: '8px'
   }
 };

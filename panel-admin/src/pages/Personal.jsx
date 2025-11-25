@@ -7,8 +7,6 @@ import {
   User, 
   Search,
   Mail,
-  Phone,
-  MapPin,
   Calendar,
   IdCard,
   Briefcase,
@@ -21,10 +19,20 @@ import {
   Users,
   Eye,
   EyeOff,
-  DollarSign
+  DollarSign,
+  History,
+  Clock,
+  ShieldAlert,
+  AlertCircle,
+  CheckCircle2,
+  RotateCcw,
+  FileText,
+  Filter,
+  Download,
+  Upload
 } from "lucide-react";
 
-// Función para hashear contraseñas (usando SHA-256)
+// Función para hashear contraseñas
 async function hashPassword(password) {
   const encoder = new TextEncoder();
   const data = encoder.encode(password);
@@ -39,6 +47,7 @@ export default function Personal() {
   const [roles, setRoles] = useState([]);
   const [cargos, setCargos] = useState([]);
   const [sueldos, setSueldos] = useState([]);
+  const [historial, setHistorial] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -47,8 +56,9 @@ export default function Personal() {
   const [editingCi, setEditingCi] = useState(null);
   const [viewMode, setViewMode] = useState("lista");
   const [empleadoSeleccionado, setEmpleadoSeleccionado] = useState(null);
+  const [showHistorial, setShowHistorial] = useState(false);
+  const [historialEmpleado, setHistorialEmpleado] = useState(null);
   
-  // Nuevos estados para la contraseña
   const [showPassword, setShowPassword] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState({
     isValid: false,
@@ -73,15 +83,16 @@ export default function Personal() {
     password: ''
   });
 
+  const [formOriginal, setFormOriginal] = useState({});
   const [formErrors, setFormErrors] = useState({});
   const [checkingCi, setCheckingCi] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Estados para búsqueda y filtros
   const [searchTerm, setSearchTerm] = useState("");
   const [filtroCargo, setFiltroCargo] = useState("todos");
   const [filtroRol, setFiltroRol] = useState("todos");
+  const [showFilters, setShowFilters] = useState(false);
 
-  // Datos predefinidos para cargos y roles
   const cargosPredefinidos = [
     { id_cargo: 1, nombre: 'Gerente', descripcion: 'Responsable de la gestión del establecimiento' },
     { id_cargo: 2, nombre: 'Mesero', descripcion: 'Atención al cliente y servicio de mesa' },
@@ -104,7 +115,110 @@ export default function Personal() {
     cargarDatos();
   }, []);
 
-  // Función para validar fortaleza de contraseña
+  const detectarCambios = (original, nuevo) => {
+    const cambios = [];
+    
+    Object.keys(nuevo).forEach(key => {
+      if (key === 'password' && nuevo[key] === '') return;
+      
+      const valorOriginal = original[key];
+      const valorNuevo = nuevo[key];
+      
+      if (valorOriginal !== valorNuevo) {
+        let descripcion = '';
+        
+        switch(key) {
+          case 'nombre':
+            descripcion = `Nombre: ${valorOriginal} → ${valorNuevo}`;
+            break;
+          case 'pat':
+            descripcion = `Apellido paterno: ${valorOriginal} → ${valorNuevo}`;
+            break;
+          case 'mat':
+            descripcion = `Apellido materno: ${valorOriginal || 'N/A'} → ${valorNuevo || 'N/A'}`;
+            break;
+          case 'fecha_nac':
+            descripcion = `Fecha nacimiento: ${new Date(valorOriginal).toLocaleDateString()} → ${new Date(valorNuevo).toLocaleDateString()}`;
+            break;
+          case 'id_rol':
+            const rolOriginal = rolesPredefinidos.find(r => r.id_rol == valorOriginal)?.nombre || 'N/A';
+            const rolNuevo = rolesPredefinidos.find(r => r.id_rol == valorNuevo)?.nombre || 'N/A';
+            descripcion = `Rol: ${rolOriginal} → ${rolNuevo}`;
+            break;
+          case 'id_cargo':
+            const cargoOriginal = cargosPredefinidos.find(c => c.id_cargo == valorOriginal)?.nombre || 'N/A';
+            const cargoNuevo = cargosPredefinidos.find(c => c.id_cargo == valorNuevo)?.nombre || 'N/A';
+            descripcion = `Cargo: ${cargoOriginal} → ${cargoNuevo}`;
+            break;
+          case 'email':
+            descripcion = `Email: ${valorOriginal || 'N/A'} → ${valorNuevo || 'N/A'}`;
+            break;
+          case 'password':
+            descripcion = `Contraseña: Actualizada`;
+            break;
+          default:
+            descripcion = `${key}: ${valorOriginal} → ${valorNuevo}`;
+        }
+        
+        cambios.push(descripcion);
+      }
+    });
+    
+    return cambios;
+  };
+
+  const registrarEnHistorial = async (accion, detalles, ciEmpleado = null, cambios = []) => {
+    try {
+      const historialData = {
+        accion,
+        detalles,
+        cambios: cambios.length > 0 ? cambios : null,
+        ci_empleado: ciEmpleado,
+        fecha: new Date().toISOString(),
+        usuario: 'Sistema'
+      };
+
+      const { error } = await supabase
+        .from('historial_empleados')
+        .insert([historialData]);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error registrando en historial:', error);
+    }
+  };
+
+  const cargarHistorialEmpleado = async (ci) => {
+    try {
+      const { data, error } = await supabase
+        .from('historial_empleados')
+        .select('*')
+        .eq('ci_empleado', ci)
+        .order('fecha', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error cargando historial del empleado:', error);
+      return [];
+    }
+  };
+
+  const cargarHistorial = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('historial_empleados')
+        .select('*')
+        .order('fecha', { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+      setHistorial(data || []);
+    } catch (error) {
+      console.error('Error cargando historial:', error);
+    }
+  };
+
   const validatePasswordStrength = (password) => {
     const checks = {
       length: password.length >= 8,
@@ -124,7 +238,6 @@ export default function Personal() {
     return isValid;
   };
 
-  // Función para verificar si el CI ya existe
   const checkCiExists = async (ci) => {
     if (!ci || ci.length < 5) return false;
     
@@ -141,7 +254,7 @@ export default function Personal() {
         return false;
       }
 
-      return !!data; // Retorna true si existe, false si no existe
+      return !!data;
     } catch (error) {
       console.error('Error verificando CI:', error);
       return false;
@@ -150,11 +263,9 @@ export default function Personal() {
     }
   };
 
-  // Validación mejorada del formulario
   const validateForm = async () => {
     const errors = {};
     
-    // Validación de CI
     if (!form.ci.trim()) {
       errors.ci = "El CI es requerido";
     } else if (form.ci.length < 5) {
@@ -164,14 +275,12 @@ export default function Personal() {
     } else if (form.ci.length > 15) {
       errors.ci = "El CI no puede tener más de 15 caracteres";
     } else if (!editingCi) {
-      // Solo verificar existencia si no estamos editando
       const ciExists = await checkCiExists(form.ci);
       if (ciExists) {
         errors.ci = "Ya existe un empleado con este CI";
       }
     }
 
-    // Validación de nombre
     if (!form.nombre.trim()) {
       errors.nombre = "El nombre es requerido";
     } else if (form.nombre.length < 2) {
@@ -182,7 +291,6 @@ export default function Personal() {
       errors.nombre = "El nombre solo puede contener letras y espacios";
     }
 
-    // Validación de apellido paterno
     if (!form.pat.trim()) {
       errors.pat = "El apellido paterno es requerido";
     } else if (form.pat.length < 2) {
@@ -193,7 +301,6 @@ export default function Personal() {
       errors.pat = "El apellido paterno solo puede contener letras";
     }
 
-    // Validación de apellido materno
     if (form.mat && form.mat.trim()) {
       if (form.mat.length < 2) {
         errors.mat = "El apellido materno debe tener al menos 2 caracteres";
@@ -204,42 +311,36 @@ export default function Personal() {
       }
     }
 
-    // Validación de fecha de nacimiento CORREGIDA
     if (!form.fecha_nac) {
       errors.fecha_nac = "La fecha de nacimiento es requerida";
     } else {
       const fechaNac = new Date(form.fecha_nac);
       const hoy = new Date();
       
-      // Calcular edad exacta
       let edad = hoy.getFullYear() - fechaNac.getFullYear();
       const mes = hoy.getMonth() - fechaNac.getMonth();
       
-      // Ajustar edad si aún no ha pasado el mes de cumpleaños
       if (mes < 0 || (mes === 0 && hoy.getDate() < fechaNac.getDate())) {
         edad--;
       }
       
       if (fechaNac >= hoy) {
         errors.fecha_nac = "La fecha de nacimiento debe ser anterior a hoy";
-      } else if (edad < 14) {
-        errors.fecha_nac = "El empleado debe tener al menos 14 años";
+      } else if (edad < 18) {
+        errors.fecha_nac = "El empleado debe tener al menos 18 años";
       } else if (edad > 100) {
         errors.fecha_nac = "La edad no puede ser mayor a 100 años";
       }
     }
 
-    // Validación de cargo
     if (!form.id_cargo) {
       errors.id_cargo = "Debe seleccionar un cargo";
     }
 
-    // Validación de rol
     if (!form.id_rol) {
       errors.id_rol = "Debe seleccionar un rol";
     }
 
-    // Validación de email
     if (form.email && form.email.trim()) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(form.email)) {
@@ -249,7 +350,6 @@ export default function Personal() {
       }
     }
 
-    // Validación de contraseña
     if (!editingCi) {
       if (!form.password) {
         errors.password = "La contraseña es requerida";
@@ -280,7 +380,6 @@ export default function Personal() {
     try {
       setLoading(true);
       
-      // Cargar empleados y sueldos desde Supabase
       const [empleadosRes, sueldosRes] = await Promise.all([
         supabase.from('empleados').select(`
           *,
@@ -293,12 +392,11 @@ export default function Personal() {
       if (empleadosRes.error) throw empleadosRes.error;
       if (sueldosRes.error) throw sueldosRes.error;
 
-      // Usar datos predefinidos para cargos y roles
       setCargos(cargosPredefinidos);
       setRoles(rolesPredefinidos);
-      
       setEmpleados(empleadosRes.data || []);
       setSueldos(sueldosRes.data || []);
+      await cargarHistorial();
     } catch (error) {
       showMessage(`Error al cargar datos: ${error.message}`);
     } finally {
@@ -309,33 +407,44 @@ export default function Personal() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    setIsSubmitting(true);
+    
     const isValid = await validateForm();
     if (!isValid) {
       showMessage("Por favor, corrige los errores en el formulario");
+      setIsSubmitting(false);
       return;
     }
 
     try {
-      // Preparar datos para enviar
       const datosAEnviar = { ...form };
+      let cambios = [];
       
-      // Hashear la contraseña si se proporciona una nueva
       if (datosAEnviar.password && datosAEnviar.password !== '') {
         datosAEnviar.password = await hashPassword(datosAEnviar.password);
+        cambios.push('Contraseña actualizada');
       } else if (editingCi) {
-        // Si estamos editando y no se cambió la contraseña, no enviarla
         delete datosAEnviar.password;
       }
       
       if (editingCi) {
+        cambios = detectarCambios(formOriginal, datosAEnviar);
+        
         const { error } = await supabase
           .from('empleados')
           .update(datosAEnviar)
           .eq('ci', editingCi);
         if (error) throw error;
+        
+        await registrarEnHistorial(
+          'ACTUALIZACIÓN',
+          `Empleado ${form.nombre} ${form.pat} actualizado`,
+          form.ci,
+          cambios
+        );
+        
         showMessage("Empleado actualizado exitosamente", "success");
       } else {
-        // Verificar nuevamente si el CI ya existe (doble verificación)
         const ciExists = await checkCiExists(form.ci);
         if (ciExists) {
           throw new Error("Ya existe un empleado con este CI");
@@ -345,6 +454,14 @@ export default function Personal() {
           .from('empleados')
           .insert([datosAEnviar]);
         if (error) throw error;
+        
+        await registrarEnHistorial(
+          'CREACIÓN',
+          `Nuevo empleado creado: ${form.nombre} ${form.pat}`,
+          form.ci,
+          [`Empleado creado con CI: ${form.ci}`]
+        );
+        
         showMessage("Empleado creado exitosamente", "success");
       }
 
@@ -352,11 +469,13 @@ export default function Personal() {
       cargarDatos();
     } catch (error) {
       showMessage(error.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const editarEmpleado = (empleado) => {
-    setForm({
+    const datosEmpleado = {
       ci: empleado.ci,
       nombre: empleado.nombre,
       pat: empleado.pat,
@@ -365,11 +484,13 @@ export default function Personal() {
       id_rol: empleado.id_rol,
       id_cargo: empleado.id_cargo,
       email: empleado.email || '',
-      password: '' // Limpiar contraseña al editar por seguridad
-    });
+      password: ''
+    };
+    
+    setForm(datosEmpleado);
+    setFormOriginal(datosEmpleado);
     setEditingCi(empleado.ci);
     setShowForm(true);
-    // Resetear validación de contraseña
     setPasswordStrength({
       isValid: false,
       checks: {
@@ -383,28 +504,23 @@ export default function Personal() {
     setFormErrors({});
   };
 
-  // Función para manejar cambio de contraseña
   const handlePasswordChange = (e) => {
     const newPassword = e.target.value;
     setForm({...form, password: newPassword});
     validatePasswordStrength(newPassword);
     
-    // Limpiar error de contraseña si se está escribiendo
     if (formErrors.password) {
       setFormErrors(prev => ({ ...prev, password: '' }));
     }
   };
 
-  // Función para manejar cambios en los campos
   const handleInputChange = async (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     
-    // Limpiar error del campo cuando el usuario empiece a escribir
     if (formErrors[field]) {
       setFormErrors(prev => ({ ...prev, [field]: '' }));
     }
 
-    // Verificar CI único en tiempo real (solo para nuevo empleado)
     if (field === 'ci' && !editingCi && value.length >= 5) {
       const ciExists = await checkCiExists(value);
       if (ciExists) {
@@ -421,14 +537,34 @@ export default function Personal() {
     setViewMode("detalle");
   };
 
+  const verHistorialEmpleado = async (empleado) => {
+    const historial = await cargarHistorialEmpleado(empleado.ci);
+    setHistorialEmpleado({
+      ...empleado,
+      historial
+    });
+    setShowHistorial(true);
+  };
+
   const eliminarEmpleado = async (ci) => {
-    if (window.confirm('¿Estás seguro de eliminar este empleado? Esta acción no se puede deshacer.')) {
+    const empleado = empleados.find(e => e.ci === ci);
+    if (!empleado) return;
+    
+    if (window.confirm(`¿Estás seguro de eliminar al empleado ${empleado.nombre} ${empleado.pat} (CI: ${ci})?\n\nEsta acción no se puede deshacer.`)) {
       try {
         const { error } = await supabase
           .from('empleados')
           .delete()
           .eq('ci', ci);
         if (error) throw error;
+        
+        await registrarEnHistorial(
+          'ELIMINACIÓN',
+          `Empleado eliminado: ${empleado.nombre} ${empleado.pat}`,
+          ci,
+          [`Empleado eliminado del sistema`]
+        );
+        
         showMessage("Empleado eliminado exitosamente", "success");
         cargarDatos();
       } catch (error) {
@@ -449,6 +585,7 @@ export default function Personal() {
       email: '',
       password: ''
     });
+    setFormOriginal({});
     setEditingCi(null);
     setShowForm(false);
     setShowPassword(false);
@@ -465,7 +602,6 @@ export default function Personal() {
     });
   };
 
-  // Filtros y cálculos
   const filteredEmpleados = empleados.filter(empleado => {
     const matchesSearch = 
       empleado.ci.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -481,13 +617,11 @@ export default function Personal() {
     return matchesSearch && matchesCargo && matchesRol;
   });
 
-  // Obtener sueldo del cargo
   const getSueldoCargo = (idCargo) => {
     const sueldo = sueldos.find(s => s.id_cargo === idCargo);
     return sueldo ? sueldo.monto : 0;
   };
 
-  // Calcular edad
   const calcularEdad = (fechaNac) => {
     const hoy = new Date();
     const nacimiento = new Date(fechaNac);
@@ -498,6 +632,26 @@ export default function Personal() {
     }
     return edad;
   };
+
+  const empleadosSinEmail = empleados.filter(e => !e.email);
+
+  const ErrorMessage = ({ error }) => (
+    error ? (
+      <div className="error-message">
+        <AlertTriangle size={12} />
+        <span>{error}</span>
+      </div>
+    ) : null
+  );
+
+  const SuccessMessage = ({ message }) => (
+    message ? (
+      <div className="success-message">
+        <CheckCircle2 size={12} />
+        <span>{message}</span>
+      </div>
+    ) : null
+  );
 
   if (loading) {
     return (
@@ -510,13 +664,24 @@ export default function Personal() {
 
   return (
     <div className="container">
-      {/* Header */}
       <header className="page-header">
-        <h1>Gestión de Personal</h1>
-        <p>Administra la información de los empleados</p>
+        <div className="header-content">
+          <div className="header-title">
+            <Users size={32} />
+            <div>
+              <h1>Gestión de Personal</h1>
+              <p>Administra la información de los empleados</p>
+            </div>
+          </div>
+          <div className="header-actions">
+            <button onClick={cargarDatos} className="btn btn-secondary">
+              <RotateCcw size={16} />
+              Actualizar
+            </button>
+          </div>
+        </div>
       </header>
 
-      {/* Alertas */}
       {error && (
         <div className="alert error">
           <AlertTriangle size={20} />
@@ -537,7 +702,6 @@ export default function Personal() {
         </div>
       )}
 
-      {/* Vista de Detalle */}
       {viewMode === "detalle" && empleadoSeleccionado && (
         <div className="detalle-empleado">
           <div className="detalle-header">
@@ -622,71 +786,82 @@ export default function Personal() {
         </div>
       )}
 
-      {/* Vista de Lista */}
       {viewMode === "lista" && (
         <>
-          {/* Barra de búsqueda y filtros */}
           <div className="search-filter-bar">
-            <div className="search-box">
-              <Search size={18} />
-              <input
-                type="text"
-                placeholder="Buscar por CI, nombre, apellido, cargo o rol..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="search-input"
-              />
-            </div>
-            <div className="filter-group">
-              <div className="filter-item">
-                <label className="filter-label">Cargo:</label>
-                <select 
-                  value={filtroCargo}
-                  onChange={(e) => setFiltroCargo(e.target.value)}
-                  className="filter-select"
-                >
-                  <option value="todos">Todos los cargos</option>
-                  {cargosPredefinidos.map(cargo => (
-                    <option key={cargo.id_cargo} value={cargo.id_cargo}>
-                      {cargo.nombre}
-                    </option>
-                  ))}
-                </select>
+            <div className="search-section">
+              <div className="search-box">
+                <Search size={18} />
+                <input
+                  type="text"
+                  placeholder="Buscar por CI, nombre, apellido, cargo o rol..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="search-input"
+                />
               </div>
-              
-              <div className="filter-item">
-                <label className="filter-label">Rol:</label>
-                <select 
-                  value={filtroRol}
-                  onChange={(e) => setFiltroRol(e.target.value)}
-                  className="filter-select"
-                >
-                  <option value="todos">Todos los roles</option>
-                  {rolesPredefinidos.map(rol => (
-                    <option key={rol.id_rol} value={rol.id_rol}>
-                      {rol.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               <button 
-                onClick={() => {
-                  setFiltroCargo("todos");
-                  setFiltroRol("todos");
-                  setSearchTerm("");
-                }}
-                className="btn btn-outline btn-small"
+                onClick={() => setShowFilters(!showFilters)}
+                className="btn btn-outline"
               >
-                Limpiar Filtros
+                <Filter size={16} />
+                Filtros
               </button>
             </div>
+
+            {showFilters && (
+              <div className="filter-section">
+                <div className="filter-group">
+                  <div className="filter-item">
+                    <label className="filter-label">Cargo:</label>
+                    <select 
+                      value={filtroCargo}
+                      onChange={(e) => setFiltroCargo(e.target.value)}
+                      className="filter-select"
+                    >
+                      <option value="todos">Todos los cargos</option>
+                      {cargosPredefinidos.map(cargo => (
+                        <option key={cargo.id_cargo} value={cargo.id_cargo}>
+                          {cargo.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div className="filter-item">
+                    <label className="filter-label">Rol:</label>
+                    <select 
+                      value={filtroRol}
+                      onChange={(e) => setFiltroRol(e.target.value)}
+                      className="filter-select"
+                    >
+                      <option value="todos">Todos los roles</option>
+                      {rolesPredefinidos.map(rol => (
+                        <option key={rol.id_rol} value={rol.id_rol}>
+                          {rol.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button 
+                    onClick={() => {
+                      setFiltroCargo("todos");
+                      setFiltroRol("todos");
+                      setSearchTerm("");
+                    }}
+                    className="btn btn-outline btn-small"
+                  >
+                    Limpiar Filtros
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Estadísticas */}
           <div className="stats-grid">
             <div className="stat-card">
-              <div className="stat-icon">
+              <div className="stat-icon primary">
                 <Users size={24} />
               </div>
               <div className="stat-info">
@@ -695,7 +870,7 @@ export default function Personal() {
               </div>
             </div>
             <div className="stat-card">
-              <div className="stat-icon">
+              <div className="stat-icon secondary">
                 <Briefcase size={24} />
               </div>
               <div className="stat-info">
@@ -706,7 +881,7 @@ export default function Personal() {
               </div>
             </div>
             <div className="stat-card">
-              <div className="stat-icon">
+              <div className="stat-icon tertiary">
                 <Shield size={24} />
               </div>
               <div className="stat-info">
@@ -717,7 +892,7 @@ export default function Personal() {
               </div>
             </div>
             <div className="stat-card">
-              <div className="stat-icon">
+              <div className="stat-icon success">
                 <DollarSign size={24} />
               </div>
               <div className="stat-info">
@@ -734,33 +909,68 @@ export default function Personal() {
             </div>
           </div>
 
-          {/* Botón de acción */}
+          {empleados.some(e => calcularEdad(e.fecha_nac) < 18) && (
+            <div className="alert warning">
+              <ShieldAlert size={16} />
+              <span>
+                <strong>Advertencia:</strong> Hay empleados menores de 18 años en el sistema.
+              </span>
+            </div>
+          )}
+
+          {empleadosSinEmail.length > 0 && (
+            <div className="alert info">
+              <AlertCircle size={16} />
+              <div>
+                <strong>Información:</strong> {empleadosSinEmail.length} empleado(s) no tienen email registrado.
+              </div>
+            </div>
+          )}
+
           <div className="action-buttons">
             <button onClick={() => { resetForm(); setShowForm(true); }} className="btn btn-primary">
               <Plus size={16} />
               Nuevo Empleado
             </button>
+            <button onClick={() => setShowHistorial(true)} className="btn btn-secondary">
+              <History size={16} />
+              Ver Historial
+            </button>
           </div>
 
-          {/* Formulario modal */}
           {showForm && (
             <div className="modal-overlay">
               <div className="modal large">
                 <div className="modal-header">
-                  <h3>{editingCi ? "Editar Empleado" : "Nuevo Empleado"}</h3>
+                  <h3>
+                    {editingCi ? (
+                      <>
+                        <Edit size={20} />
+                        Editar Empleado
+                      </>
+                    ) : (
+                      <>
+                        <Plus size={20} />
+                        Nuevo Empleado
+                      </>
+                    )}
+                  </h3>
                   <button onClick={resetForm} className="btn-close">
                     <X size={20} />
                   </button>
                 </div>
                 <form onSubmit={handleSubmit} className="form-container">
                   <div className="form-section">
-                    <h4>Información Personal</h4>
+                    <h4>
+                      <User size={16} />
+                      Información Personal
+                    </h4>
                     <div className="form-row">
                       <div className="form-group">
                         <label className="form-label">
                           CI *
                           {formErrors.ci && <span className="error-indicator">!</span>}
-                          {checkingCi && <span className="checking-indicator">✓</span>}
+                          {checkingCi && <span className="checking-indicator">⏳</span>}
                         </label>
                         <input
                           type="text"
@@ -772,9 +982,9 @@ export default function Personal() {
                           placeholder="Número de carnet"
                           maxLength={15}
                         />
-                        {formErrors.ci && <span className="error-message">{formErrors.ci}</span>}
-                        {!formErrors.ci && form.ci.length >= 5 && !checkingCi && (
-                          <span className="success-message">✓ CI disponible</span>
+                        <ErrorMessage error={formErrors.ci} />
+                        {!formErrors.ci && form.ci.length >= 5 && !checkingCi && !editingCi && (
+                          <SuccessMessage message="✓ CI disponible" />
                         )}
                       </div>
                       <div className="form-group">
@@ -790,11 +1000,9 @@ export default function Personal() {
                           required
                           max={new Date().toISOString().split('T')[0]}
                         />
-                        {formErrors.fecha_nac && <span className="error-message">{formErrors.fecha_nac}</span>}
+                        <ErrorMessage error={formErrors.fecha_nac} />
                         {form.fecha_nac && !formErrors.fecha_nac && (
-                          <span className="success-message">
-                            ✓ Edad: {calcularEdad(form.fecha_nac)} años
-                          </span>
+                          <SuccessMessage message={`✓ Edad: ${calcularEdad(form.fecha_nac)} años`} />
                         )}
                       </div>
                     </div>
@@ -814,7 +1022,7 @@ export default function Personal() {
                           placeholder="Nombres"
                           maxLength={50}
                         />
-                        {formErrors.nombre && <span className="error-message">{formErrors.nombre}</span>}
+                        <ErrorMessage error={formErrors.nombre} />
                       </div>
                       <div className="form-group">
                         <label className="form-label">
@@ -830,7 +1038,7 @@ export default function Personal() {
                           placeholder="Apellido paterno"
                           maxLength={30}
                         />
-                        {formErrors.pat && <span className="error-message">{formErrors.pat}</span>}
+                        <ErrorMessage error={formErrors.pat} />
                       </div>
                       <div className="form-group">
                         <label className="form-label">
@@ -845,13 +1053,16 @@ export default function Personal() {
                           placeholder="Apellido materno"
                           maxLength={30}
                         />
-                        {formErrors.mat && <span className="error-message">{formErrors.mat}</span>}
+                        <ErrorMessage error={formErrors.mat} />
                       </div>
                     </div>
                   </div>
 
                   <div className="form-section">
-                    <h4>Información Laboral</h4>
+                    <h4>
+                      <Briefcase size={16} />
+                      Información Laboral
+                    </h4>
                     <div className="form-row">
                       <div className="form-group">
                         <label className="form-label">
@@ -871,7 +1082,7 @@ export default function Personal() {
                             </option>
                           ))}
                         </select>
-                        {formErrors.id_cargo && <span className="error-message">{formErrors.id_cargo}</span>}
+                        <ErrorMessage error={formErrors.id_cargo} />
                       </div>
                       <div className="form-group">
                         <label className="form-label">
@@ -891,13 +1102,16 @@ export default function Personal() {
                             </option>
                           ))}
                         </select>
-                        {formErrors.id_rol && <span className="error-message">{formErrors.id_rol}</span>}
+                        <ErrorMessage error={formErrors.id_rol} />
                       </div>
                     </div>
                   </div>
 
                   <div className="form-section">
-                    <h4>Información de Acceso</h4>
+                    <h4>
+                      <Shield size={16} />
+                      Información de Acceso
+                    </h4>
                     <div className="form-row">
                       <div className="form-group">
                         <label className="form-label">
@@ -912,7 +1126,7 @@ export default function Personal() {
                           placeholder="correo@ejemplo.com"
                           maxLength={100}
                         />
-                        {formErrors.email && <span className="error-message">{formErrors.email}</span>}
+                        <ErrorMessage error={formErrors.email} />
                       </div>
                       <div className="form-group">
                         <label className="form-label">
@@ -939,7 +1153,6 @@ export default function Personal() {
                         </div>
                         {formErrors.password && <span className="error-message">{formErrors.password}</span>}
                         
-                        {/* Indicador de fortaleza de contraseña */}
                         {form.password && (
                           <div className="password-strength">
                             <div className="strength-header">
@@ -967,17 +1180,6 @@ export default function Personal() {
                             </div>
                           </div>
                         )}
-                        
-                        {!editingCi && (
-                          <small className="password-hint">
-                            La contraseña debe cumplir con todos los requisitos de seguridad y será hasheada antes de guardarse
-                          </small>
-                        )}
-                        {editingCi && (
-                          <small className="password-hint">
-                            Dejar en blanco para mantener la contraseña actual
-                          </small>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -986,12 +1188,26 @@ export default function Personal() {
                     <button 
                       type="submit" 
                       className="btn btn-success"
-                      disabled={!editingCi && form.password && !passwordStrength.isValid}
+                      disabled={isSubmitting || (!editingCi && form.password && !passwordStrength.isValid)}
                     >
-                      <Save size={16} />
-                      {editingCi ? "Actualizar" : "Guardar"}
+                      {isSubmitting ? (
+                        <>
+                          <Loader size={16} className="spinner" />
+                          {editingCi ? "Actualizando..." : "Guardando..."}
+                        </>
+                      ) : (
+                        <>
+                          <Save size={16} />
+                          {editingCi ? "Actualizar" : "Guardar"}
+                        </>
+                      )}
                     </button>
-                    <button type="button" onClick={resetForm} className="btn btn-cancel">
+                    <button 
+                      type="button" 
+                      onClick={resetForm} 
+                      className="btn btn-cancel"
+                      disabled={isSubmitting}
+                    >
                       Cancelar
                     </button>
                   </div>
@@ -1000,16 +1216,177 @@ export default function Personal() {
             </div>
           )}
 
-          {/* Tabla de empleados */}
+          {showHistorial && !historialEmpleado && (
+            <div className="modal-overlay">
+              <div className="modal large">
+                <div className="modal-header">
+                  <h3>
+                    <History size={20} />
+                    Historial de Cambios
+                  </h3>
+                  <button onClick={() => setShowHistorial(false)} className="btn-close">
+                    <X size={20} />
+                  </button>
+                </div>
+                <div className="historial-content">
+                  <div className="historial-stats">
+                    <div className="stat-item">
+                      <span className="stat-number">{historial.length}</span>
+                      <span className="stat-label">Registros totales</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-number">
+                        {historial.filter(h => h.accion === 'CREACIÓN').length}
+                      </span>
+                      <span className="stat-label">Altas</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-number">
+                        {historial.filter(h => h.accion === 'ACTUALIZACIÓN').length}
+                      </span>
+                      <span className="stat-label">Modificaciones</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-number">
+                        {historial.filter(h => h.accion === 'ELIMINACIÓN').length}
+                      </span>
+                      <span className="stat-label">Bajas</span>
+                    </div>
+                  </div>
+                  
+                  <div className="historial-list">
+                    {historial.map((registro, index) => (
+                      <div key={index} className="historial-item">
+                        <div className="historial-header">
+                          <span className={`historial-action ${registro.accion.toLowerCase()}`}>
+                            {registro.accion}
+                          </span>
+                          <span className="historial-date">
+                            <Clock size={12} />
+                            {new Date(registro.fecha).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="historial-details">
+                          {registro.detalles}
+                        </div>
+                        {registro.cambios && registro.cambios.length > 0 && (
+                          <div className="historial-cambios">
+                            <strong>Cambios realizados:</strong>
+                            <ul>
+                              {registro.cambios.map((cambio, idx) => (
+                                <li key={idx}>{cambio}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {registro.ci_empleado && (
+                          <div className="historial-ci">
+                            CI Empleado: {registro.ci_empleado}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {historial.length === 0 && (
+                      <div className="empty-state">
+                        <History size={48} />
+                        <p>No hay registros en el historial</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showHistorial && historialEmpleado && (
+            <div className="modal-overlay">
+              <div className="modal large">
+                <div className="modal-header">
+                  <h3>
+                    <FileText size={20} />
+                    Historial de: {historialEmpleado.nombre} {historialEmpleado.pat}
+                  </h3>
+                  <button onClick={() => {
+                    setShowHistorial(false);
+                    setHistorialEmpleado(null);
+                  }} className="btn-close">
+                    <X size={20} />
+                  </button>
+                </div>
+                <div className="historial-content">
+                  <div className="empleado-info">
+                    <div className="info-row">
+                      <span><strong>CI:</strong> {historialEmpleado.ci}</span>
+                      <span><strong>Cargo:</strong> {historialEmpleado.cargos?.nombre || 'N/A'}</span>
+                      <span><strong>Rol:</strong> {historialEmpleado.roles?.nombre || 'N/A'}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="historial-stats">
+                    <div className="stat-item">
+                      <span className="stat-number">{historialEmpleado.historial.length}</span>
+                      <span className="stat-label">Registros</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-number">
+                        {historialEmpleado.historial.filter(h => h.accion === 'ACTUALIZACIÓN').length}
+                      </span>
+                      <span className="stat-label">Modificaciones</span>
+                    </div>
+                  </div>
+                  
+                  <div className="historial-list">
+                    {historialEmpleado.historial.map((registro, index) => (
+                      <div key={index} className="historial-item">
+                        <div className="historial-header">
+                          <span className={`historial-action ${registro.accion.toLowerCase()}`}>
+                            {registro.accion}
+                          </span>
+                          <span className="historial-date">
+                            <Clock size={12} />
+                            {new Date(registro.fecha).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="historial-details">
+                          {registro.detalles}
+                        </div>
+                        {registro.cambios && registro.cambios.length > 0 && (
+                          <div className="historial-cambios">
+                            <strong>Cambios específicos:</strong>
+                            <ul>
+                              {registro.cambios.map((cambio, idx) => (
+                                <li key={idx}>{cambio}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {historialEmpleado.historial.length === 0 && (
+                      <div className="empty-state">
+                        <History size={48} />
+                        <p>No hay registros en el historial de este empleado</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="table-card">
             <div className="table-header">
-              <Users size={20} />
-              <h2>Personal ({filteredEmpleados.length})</h2>
+              <div className="table-title">
+                <Users size={20} />
+                <h2>Personal ({filteredEmpleados.length})</h2>
+              </div>
               <div className="table-actions">
-                <span className="filter-indicator">
-                  {filtroCargo !== "todos" && `Cargo: ${cargosPredefinidos.find(c => c.id_cargo.toString() === filtroCargo)?.nombre}`}
-                  {filtroRol !== "todos" && ` | Rol: ${rolesPredefinidos.find(r => r.id_rol.toString() === filtroRol)?.nombre}`}
-                </span>
+                {(filtroCargo !== "todos" || filtroRol !== "todos") && (
+                  <span className="filter-indicator">
+                    {filtroCargo !== "todos" && `Cargo: ${cargosPredefinidos.find(c => c.id_cargo.toString() === filtroCargo)?.nombre}`}
+                    {filtroRol !== "todos" && ` | Rol: ${rolesPredefinidos.find(r => r.id_rol.toString() === filtroRol)?.nombre}`}
+                  </span>
+                )}
               </div>
             </div>
             <div className="table-container">
@@ -1032,6 +1409,12 @@ export default function Personal() {
                       <td className="name-cell">
                         <strong>{empleado.nombre}</strong><br/>
                         <small>{empleado.pat} {empleado.mat}</small>
+                        {!empleado.email && (
+                          <div className="sin-email-indicator">
+                            <Mail size={12} />
+                            Sin email
+                          </div>
+                        )}
                       </td>
                       <td className="age-cell">
                         {calcularEdad(empleado.fecha_nac)} años
@@ -1058,6 +1441,13 @@ export default function Personal() {
                             <Eye size={14} />
                           </button>
                           <button
+                            onClick={() => verHistorialEmpleado(empleado)}
+                            className="btn-info"
+                            title="Ver historial"
+                          >
+                            <History size={14} />
+                          </button>
+                          <button
                             onClick={() => editarEmpleado(empleado)}
                             className="btn-edit"
                             title="Editar empleado"
@@ -1079,6 +1469,7 @@ export default function Personal() {
               </table>
               {filteredEmpleados.length === 0 && (
                 <div className="empty-state">
+                  <Users size={48} />
                   <p>No se encontraron empleados</p>
                   {(filtroCargo !== "todos" || filtroRol !== "todos" || searchTerm) && (
                     <button 
@@ -1110,14 +1501,26 @@ export default function Personal() {
           margin-bottom: 30px;
         }
 
-        .page-header h1 {
+        .header-content {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .header-title {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+        }
+
+        .header-title h1 {
           font-size: 28px;
           color: #7a3b06;
-          margin-bottom: 8px;
+          margin-bottom: 4px;
           font-weight: 700;
         }
 
-        .page-header p {
+        .header-title p {
           color: #6d4611;
           font-size: 14px;
           opacity: 0.9;
@@ -1163,6 +1566,18 @@ export default function Personal() {
           color: #155724;
         }
 
+        .alert.warning {
+          background-color: #fff3cd;
+          border: 1px solid #ffeaa7;
+          color: #856404;
+        }
+
+        .alert.info {
+          background-color: #e3f2fd;
+          border: 1px solid #bbdefb;
+          color: #1976d2;
+        }
+
         .alert-close {
           margin-left: auto;
           background: none;
@@ -1171,7 +1586,6 @@ export default function Personal() {
           opacity: 0.7;
         }
 
-        /* Vista de Detalle */
         .detalle-empleado {
           background: white;
           border-radius: 12px;
@@ -1273,19 +1687,23 @@ export default function Personal() {
           opacity: 0.8;
         }
 
-        /* Barra de búsqueda y filtros */
         .search-filter-bar {
-          display: flex;
-          gap: 16px;
+          background: white;
+          padding: 20px;
+          border-radius: 12px;
+          border: 1px solid #e9d8b5;
           margin-bottom: 24px;
-          flex-wrap: wrap;
-          align-items: end;
+        }
+
+        .search-section {
+          display: flex;
+          gap: 12px;
+          align-items: center;
         }
 
         .search-box {
           position: relative;
           flex: 1;
-          min-width: 300px;
         }
 
         .search-box svg {
@@ -1304,9 +1722,15 @@ export default function Personal() {
           font-size: 14px;
         }
 
+        .filter-section {
+          margin-top: 16px;
+          padding-top: 16px;
+          border-top: 1px solid #e9d8b5;
+        }
+
         .filter-group {
           display: flex;
-          gap: 12px;
+          gap: 16px;
           align-items: end;
           flex-wrap: wrap;
         }
@@ -1348,7 +1772,6 @@ export default function Personal() {
           color: white;
         }
 
-        /* Estadísticas */
         .stats-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -1364,13 +1787,36 @@ export default function Personal() {
           display: flex;
           align-items: center;
           gap: 16px;
+          transition: transform 0.2s;
+        }
+
+        .stat-card:hover {
+          transform: translateY(-2px);
         }
 
         .stat-icon {
-          background: #f8f5ee;
           padding: 12px;
           border-radius: 8px;
+        }
+
+        .stat-icon.primary {
+          background: #f8f5ee;
           color: #7a3b06;
+        }
+
+        .stat-icon.secondary {
+          background: #e3f2fd;
+          color: #1976d2;
+        }
+
+        .stat-icon.tertiary {
+          background: #f3e5f5;
+          color: #7b1fa2;
+        }
+
+        .stat-icon.success {
+          background: #e8f5e8;
+          color: #28a745;
         }
 
         .stat-value {
@@ -1385,8 +1831,9 @@ export default function Personal() {
           opacity: 0.8;
         }
 
-        /* Botones y formularios */
         .action-buttons {
+          display: flex;
+          gap: 12px;
           margin-bottom: 24px;
         }
 
@@ -1423,6 +1870,11 @@ export default function Personal() {
           color: white;
         }
 
+        .btn-info {
+          background-color: #17a2b8;
+          color: white;
+        }
+
         .btn:hover {
           opacity: 0.9;
           transform: translateY(-1px);
@@ -1431,11 +1883,6 @@ export default function Personal() {
         .btn:disabled {
           opacity: 0.6;
           cursor: not-allowed;
-          transform: none;
-        }
-
-        .btn:disabled:hover {
-          opacity: 0.6;
           transform: none;
         }
 
@@ -1471,7 +1918,7 @@ export default function Personal() {
           padding: 24px;
           border-bottom: 1px solid #e9d8b5;
           display: flex;
-          justify-content: between;
+          justify-content: space-between;
           align-items: center;
         }
 
@@ -1479,6 +1926,9 @@ export default function Personal() {
           color: #7a3b06;
           margin: 0;
           font-size: 20px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
         }
 
         .btn-close {
@@ -1503,6 +1953,9 @@ export default function Personal() {
           font-size: 16px;
           border-bottom: 1px solid #e9d8b5;
           padding-bottom: 8px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
         }
 
         .form-row {
@@ -1558,6 +2011,13 @@ export default function Personal() {
         .checking-indicator {
           color: #ffc107;
           font-weight: bold;
+          animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+          0% { opacity: 1; }
+          50% { opacity: 0.5; }
+          100% { opacity: 1; }
         }
 
         .error-message {
@@ -1583,7 +2043,6 @@ export default function Personal() {
           border-top: 1px solid #e9d8b5;
         }
 
-        /* Nuevos estilos para la contraseña */
         .password-input-container {
           position: relative;
         }
@@ -1658,15 +2117,6 @@ export default function Personal() {
           color: #6c757d;
         }
 
-        .password-hint {
-          display: block;
-          margin-top: 6px;
-          font-size: 11px;
-          color: #6d4611;
-          opacity: 0.7;
-        }
-
-        /* Tabla */
         .table-card {
           background: white;
           border-radius: 12px;
@@ -1679,19 +2129,20 @@ export default function Personal() {
           border-bottom: 1px solid #e9d8b5;
           display: flex;
           align-items: center;
-          gap: 10px;
+          justify-content: space-between;
           background-color: #f8f5ee;
-          justify-content: between;
+        }
+
+        .table-title {
+          display: flex;
+          align-items: center;
+          gap: 10px;
         }
 
         .table-header h2 {
           color: #7a3b06;
           margin: 0;
           font-size: 18px;
-        }
-
-        .table-actions {
-          margin-left: auto;
         }
 
         .filter-indicator {
@@ -1761,7 +2212,8 @@ export default function Personal() {
 
         .btn-view,
         .btn-edit,
-        .btn-delete {
+        .btn-delete,
+        .btn-info {
           display: flex;
           align-items: center;
           justify-content: center;
@@ -1777,6 +2229,11 @@ export default function Personal() {
           color: white;
         }
 
+        .btn-info {
+          background-color: #6f42c1;
+          color: white;
+        }
+
         .btn-edit {
           background-color: #ffc107;
           color: #7a3b06;
@@ -1788,6 +2245,7 @@ export default function Personal() {
         }
 
         .btn-view:hover,
+        .btn-info:hover,
         .btn-edit:hover,
         .btn-delete:hover {
           opacity: 0.8;
@@ -1800,15 +2258,182 @@ export default function Personal() {
           opacity: 0.7;
         }
 
-        .empty-state .btn {
-          margin-top: 10px;
+        .sin-email-indicator {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 10px;
+          color: #dc3545;
+          margin-top: 4px;
+          padding: 2px 6px;
+          background: #fff5f5;
+          border-radius: 4px;
+          width: fit-content;
+        }
+
+        .historial-content {
+          padding: 20px;
+        }
+
+        .historial-stats {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 16px;
+          margin-bottom: 24px;
+          padding: 16px;
+          background: #f8f5ee;
+          border-radius: 8px;
+        }
+
+        .stat-item {
+          text-align: center;
+          padding: 12px;
+          background: white;
+          border-radius: 6px;
+          border: 1px solid #e9d8b5;
+        }
+
+        .stat-number {
+          display: block;
+          font-size: 24px;
+          font-weight: 700;
+          color: #7a3b06;
+        }
+
+        .stat-label {
+          font-size: 12px;
+          color: #6d4611;
+          opacity: 0.8;
+        }
+
+        .historial-list {
+          max-height: 400px;
+          overflow-y: auto;
+        }
+
+        .historial-item {
+          padding: 16px;
+          margin-bottom: 12px;
+          background: white;
+          border: 1px solid #e9d8b5;
+          border-radius: 8px;
+        }
+
+        .historial-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+
+        .historial-action {
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+          font-weight: 600;
+          text-transform: uppercase;
+        }
+
+        .historial-action.creación {
+          background: #e8f5e8;
+          color: #28a745;
+        }
+
+        .historial-action.actualización {
+          background: #fff3cd;
+          color: #ffc107;
+        }
+
+        .historial-action.eliminación {
+          background: #f8d7da;
+          color: #dc3545;
+        }
+
+        .historial-date {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 12px;
+          color: #6d4611;
+          opacity: 0.7;
+        }
+
+        .historial-details {
+          font-size: 14px;
+          color: #7a3b06;
+          margin-bottom: 4px;
+        }
+
+        .historial-ci {
+          font-size: 12px;
+          color: #6d4611;
+          opacity: 0.7;
+        }
+
+        .error-message, .success-message {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          margin-top: 4px;
+          font-weight: 500;
+        }
+
+        .error-message {
+          color: #dc3545;
+        }
+
+        .success-message {
+          color: #28a745;
+        }
+
+        .historial-cambios {
+          margin-top: 8px;
+          padding: 8px;
+          background: #f8f9fa;
+          border-radius: 4px;
+          border-left: 3px solid #6c757d;
+        }
+
+        .historial-cambios ul {
+          margin: 4px 0 0 0;
+          padding-left: 16px;
+        }
+
+        .historial-cambios li {
+          font-size: 12px;
+          color: #495057;
+          margin-bottom: 2px;
+        }
+
+        .empleado-info {
+          padding: 16px;
+          background: #f8f5ee;
+          border-radius: 8px;
+          margin-bottom: 16px;
+        }
+
+        .info-row {
+          display: flex;
+          gap: 20px;
+          flex-wrap: wrap;
+        }
+
+        .info-row span {
+          font-size: 14px;
+          color: #7a3b06;
         }
 
         @media (max-width: 768px) {
           .container {
             padding: 16px;
           }
-          .search-filter-bar {
+          .header-content {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 16px;
+          }
+          .search-section {
             flex-direction: column;
           }
           .filter-group {
@@ -1842,8 +2467,23 @@ export default function Personal() {
             align-items: flex-start;
             gap: 10px;
           }
-          .table-actions {
-            margin-left: 0;
+          .historial-stats {
+            grid-template-columns: 1fr 1fr;
+          }
+          .historial-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+          }
+          .action-buttons {
+            flex-direction: column;
+          }
+          .action-buttons .btn {
+            justify-content: center;
+          }
+          .info-row {
+            flex-direction: column;
+            gap: 8px;
           }
         }
       `}</style>
