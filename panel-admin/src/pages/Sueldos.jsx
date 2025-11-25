@@ -14,7 +14,14 @@ import {
   X,
   Save,
   Loader,
-  BarChart3
+  BarChart3,
+  TrendingUp,
+  TrendingDown,
+  Target,
+  Shield,
+  AlertCircle,
+  CheckCircle2,
+  RotateCcw
 } from "lucide-react";
 
 export default function Sueldos() {
@@ -27,11 +34,15 @@ export default function Sueldos() {
   
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [actionLoading, setActionLoading] = useState(null);
+
   const [form, setForm] = useState({ 
     monto: '', 
     descripcion: '', 
     id_cargo: '' 
   });
+
+  const [formErrors, setFormErrors] = useState({});
 
   // Estados para búsqueda y filtros
   const [searchTerm, setSearchTerm] = useState("");
@@ -44,10 +55,10 @@ export default function Sueldos() {
   const showMessage = (message, type = "error") => {
     if (type === "success") {
       setSuccess(message);
-      setTimeout(() => setSuccess(""), 3000);
+      setTimeout(() => setSuccess(""), 4000);
     } else {
       setError(message);
-      setTimeout(() => setError(""), 5000);
+      setTimeout(() => setError(""), 6000);
     }
   };
 
@@ -60,7 +71,7 @@ export default function Sueldos() {
           cargos (nombre, descripcion)
         `).order('id_sueldo'),
         supabase.from('cargos').select('*').order('id_cargo'),
-        supabase.from('empleados').select('ci, nombre, id_cargo')
+        supabase.from('empleados').select('ci, nombre, pat, id_cargo')
       ]);
 
       if (sueldosRes.error) throw sueldosRes.error;
@@ -77,27 +88,62 @@ export default function Sueldos() {
     }
   };
 
-  // Validaciones
-  const validateSueldo = (sueldo) => {
-    if (!sueldo.monto || parseFloat(sueldo.monto) <= 0) {
-      throw new Error("El monto debe ser mayor a 0");
+  // Validaciones mejoradas
+  const validateForm = () => {
+    const errors = {};
+
+    // Validación de monto
+    if (!form.monto || form.monto.trim() === '') {
+      errors.monto = "El monto es obligatorio";
+    } else {
+      const monto = parseFloat(form.monto);
+      if (isNaN(monto) || monto <= 0) {
+        errors.monto = "El monto debe ser un número mayor a 0";
+      } else if (monto < 1500) {
+        errors.monto = "El monto mínimo es Bs 1,500";
+      } else if (monto > 8000) {
+        errors.monto = "El monto máximo es Bs 8,000";
+      }
     }
-    if (!sueldo.id_cargo) {
-      throw new Error("Debe seleccionar un cargo");
+
+    // Validación de cargo
+    if (!form.id_cargo) {
+      errors.id_cargo = "Debe seleccionar un cargo";
+    } else {
+      // Verificar si ya existe un sueldo para este cargo
+      const sueldoExistente = sueldos.find(s => 
+        s.id_cargo === parseInt(form.id_cargo) && 
+        (!editingId || s.id_sueldo !== editingId)
+      );
+      if (sueldoExistente) {
+        errors.id_cargo = `Ya existe un sueldo definido para el cargo: ${sueldoExistente.cargos?.nombre}`;
+      }
     }
-    if (parseFloat(sueldo.monto) > 100000) {
-      throw new Error("El monto no puede exceder Bs 100,000");
+
+    // Validación de descripción
+    if (form.descripcion && form.descripcion.length > 200) {
+      errors.descripcion = "La descripción no puede exceder 200 caracteres";
     }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setActionLoading('guardar');
+    
     try {
-      validateSueldo(form);
+      if (!validateForm()) {
+        showMessage("Por favor, corrige los errores en el formulario");
+        setActionLoading(null);
+        return;
+      }
       
       const sueldoData = {
-        ...form,
-        monto: parseFloat(form.monto)
+        monto: parseFloat(form.monto),
+        descripcion: form.descripcion.trim() || null,
+        id_cargo: parseInt(form.id_cargo)
       };
 
       if (editingId) {
@@ -119,31 +165,47 @@ export default function Sueldos() {
       cargarDatos();
     } catch (error) {
       showMessage(error.message);
+    } finally {
+      setActionLoading(null);
     }
   };
 
   const editarSueldo = (sueldo) => {
     setForm({
-      monto: sueldo.monto,
+      monto: sueldo.monto.toString(),
       descripcion: sueldo.descripcion || '',
-      id_cargo: sueldo.id_cargo
+      id_cargo: sueldo.id_cargo.toString()
     });
     setEditingId(sueldo.id_sueldo);
     setShowForm(true);
+    setFormErrors({});
   };
 
   const eliminarSueldo = async (id) => {
-    // Verificar si hay empleados con este sueldo
     const sueldoAEliminar = sueldos.find(s => s.id_sueldo === id);
-    if (sueldoAEliminar) {
-      const empleadosConEsteCargo = empleados.filter(emp => emp.id_cargo === sueldoAEliminar.id_cargo);
-      if (empleadosConEsteCargo.length > 0) {
-        showMessage(`No se puede eliminar. ${empleadosConEsteCargo.length} empleado(s) tienen este cargo asignado`);
-        return;
-      }
+    if (!sueldoAEliminar) return;
+
+    // Verificar si hay empleados con este cargo
+    const empleadosConEsteCargo = empleados.filter(emp => emp.id_cargo === sueldoAEliminar.id_cargo);
+    
+    if (empleadosConEsteCargo.length > 0) {
+      const empleadosNombres = empleadosConEsteCargo
+        .slice(0, 3)
+        .map(emp => `${emp.nombre} ${emp.pat}`)
+        .join(', ');
+      
+      const mensajeAdicional = empleadosConEsteCargo.length > 3 
+        ? ` y ${empleadosConEsteCargo.length - 3} más...` 
+        : '';
+      
+      showMessage(
+        `No se puede eliminar. ${empleadosConEsteCargo.length} empleado(s) tienen este cargo asignado: ${empleadosNombres}${mensajeAdicional}`
+      );
+      return;
     }
 
-    if (window.confirm('¿Estás seguro de eliminar este sueldo?')) {
+    if (window.confirm(`¿Estás seguro de eliminar el sueldo de ${sueldoAEliminar.cargos?.nombre}?`)) {
+      setActionLoading(`delete-${id}`);
       try {
         const { error } = await supabase
           .from('sueldos')
@@ -154,14 +216,22 @@ export default function Sueldos() {
         cargarDatos();
       } catch (error) {
         showMessage(`Error eliminando sueldo: ${error.message}`);
+      } finally {
+        setActionLoading(null);
       }
     }
   };
 
   const resetForm = () => {
     setForm({ monto: '', descripcion: '', id_cargo: '' });
+    setFormErrors({});
     setEditingId(null);
     setShowForm(false);
+  };
+
+  const resetFiltros = () => {
+    setSearchTerm("");
+    setFiltroCargo("todos");
   };
 
   // Filtros y cálculos
@@ -176,7 +246,7 @@ export default function Sueldos() {
     return matchesSearch && matchesCargo;
   });
 
-  // Estadísticas
+  // Estadísticas mejoradas
   const estadisticas = {
     totalSueldos: filteredSueldos.length,
     sueldoPromedio: filteredSueldos.length > 0 
@@ -187,14 +257,36 @@ export default function Sueldos() {
       : 0,
     sueldoMinimo: filteredSueldos.length > 0 
       ? Math.min(...filteredSueldos.map(s => s.monto)) 
-      : 0
+      : 0,
+    totalEmpleadosAfectados: filteredSueldos.reduce((total, sueldo) => {
+      const empleadosCount = empleados.filter(emp => emp.id_cargo === sueldo.id_cargo).length;
+      return total + empleadosCount;
+    }, 0)
   };
+
+  const ErrorMessage = ({ error }) => (
+    error ? (
+      <div className="error-message">
+        <AlertCircle size={12} />
+        <span>{error}</span>
+      </div>
+    ) : null
+  );
+
+  const SuccessMessage = ({ message }) => (
+    message ? (
+      <div className="success-message">
+        <CheckCircle2 size={12} />
+        <span>{message}</span>
+      </div>
+    ) : null
+  );
 
   if (loading) {
     return (
       <div className="loading-container">
         <Loader size={32} className="spinner" />
-        <p>Cargando datos...</p>
+        <p>Cargando datos de sueldos...</p>
       </div>
     );
   }
@@ -203,8 +295,23 @@ export default function Sueldos() {
     <div className="container">
       {/* Header */}
       <header className="page-header">
-        <h1>Gestión de Sueldos</h1>
-        <p>Administra los sueldos por cargo del personal</p>
+        <div className="header-content">
+          <div className="header-title">
+            <DollarSign size={32} />
+            <div>
+              <h1>Gestión de Sueldos</h1>
+              <p>Administra los sueldos por cargo del personal</p>
+            </div>
+          </div>
+          <button 
+            onClick={cargarDatos}
+            className="btn btn-secondary"
+            disabled={loading}
+          >
+            <RotateCcw size={16} className={loading ? 'spinner' : ''} />
+            Actualizar
+          </button>
+        </div>
       </header>
 
       {/* Alertas */}
@@ -230,17 +337,18 @@ export default function Sueldos() {
 
       {/* Barra de búsqueda y filtros */}
       <div className="search-filter-bar">
-        <div className="search-box">
-          <Search size={18} />
-          <input
-            type="text"
-            placeholder="Buscar por cargo, descripción o monto..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="search-input"
-          />
-        </div>
-        <div className="filter-group">
+        <div className="search-section">
+          <div className="search-box">
+            <Search size={18} />
+            <input
+              type="text"
+              placeholder="Buscar por cargo, descripción o monto..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="search-input"
+            />
+          </div>
+
           <select 
             value={filtroCargo}
             onChange={(e) => setFiltroCargo(e.target.value)}
@@ -253,22 +361,30 @@ export default function Sueldos() {
               </option>
             ))}
           </select>
+
+          <button 
+            onClick={resetFiltros}
+            className="btn btn-outline"
+          >
+            <X size={16} />
+            Limpiar
+          </button>
         </div>
       </div>
 
       {/* Estadísticas */}
       <div className="stats-grid">
         <div className="stat-card">
-          <div className="stat-icon">
+          <div className="stat-icon primary">
             <DollarSign size={24} />
           </div>
           <div className="stat-info">
             <div className="stat-value">{estadisticas.totalSueldos}</div>
-            <div className="stat-label">Total Sueldos</div>
+            <div className="stat-label">Sueldos Definidos</div>
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon">
+          <div className="stat-icon success">
             <BarChart3 size={24} />
           </div>
           <div className="stat-info">
@@ -282,8 +398,8 @@ export default function Sueldos() {
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon">
-            <Briefcase size={24} />
+          <div className="stat-icon warning">
+            <TrendingUp size={24} />
           </div>
           <div className="stat-info">
             <div className="stat-value">
@@ -296,20 +412,34 @@ export default function Sueldos() {
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon">
+          <div className="stat-icon info">
             <Users size={24} />
           </div>
           <div className="stat-info">
-            <div className="stat-value">
-              {new Intl.NumberFormat('es-BO', { 
-                style: 'currency', 
-                currency: 'BOB' 
-              }).format(estadisticas.sueldoMinimo)}
-            </div>
-            <div className="stat-label">Mínimo</div>
+            <div className="stat-value">{estadisticas.totalEmpleadosAfectados}</div>
+            <div className="stat-label">Empleados</div>
           </div>
         </div>
       </div>
+
+      {/* Alertas importantes */}
+      {sueldos.some(s => s.monto < 1500) && (
+        <div className="alert warning">
+          <AlertTriangle size={16} />
+          <span>
+            <strong>Advertencia:</strong> Hay sueldos por debajo del mínimo legal (Bs 1,500)
+          </span>
+        </div>
+      )}
+
+      {sueldos.some(s => s.monto > 8000) && (
+        <div className="alert info">
+          <TrendingUp size={16} />
+          <span>
+            <strong>Información:</strong> Hay sueldos que exceden el límite máximo recomendado (Bs 8,000)
+          </span>
+        </div>
+      )}
 
       {/* Botón de acción */}
       <div className="action-buttons">
@@ -323,55 +453,127 @@ export default function Sueldos() {
       {showForm && (
         <div className="modal-overlay">
           <div className="modal">
-            <h3>{editingId ? "Editar Sueldo" : "Nuevo Sueldo"}</h3>
-            <form onSubmit={handleSubmit}>
-              <div className="form-row">
+            <div className="modal-header">
+              <h3>
+                {editingId ? (
+                  <>
+                    <Edit size={20} />
+                    Editar Sueldo
+                  </>
+                ) : (
+                  <>
+                    <Plus size={20} />
+                    Nuevo Sueldo
+                  </>
+                )}
+              </h3>
+              <button onClick={resetForm} className="btn-close">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="form-container">
+              <div className="form-section">
+                <h4>
+                  <DollarSign size={16} />
+                  Información del Sueldo
+                </h4>
+                
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">
+                      Monto (Bs) *
+                      {formErrors.monto && <span className="error-indicator">!</span>}
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="1500"
+                      max="8000"
+                      value={form.monto}
+                      onChange={(e) => setForm({...form, monto: e.target.value})}
+                      className={`form-input ${formErrors.monto ? 'error' : ''}`}
+                      required
+                      placeholder="1500.00 - 8000.00"
+                    />
+                    <ErrorMessage error={formErrors.monto} />
+                    {form.monto && !formErrors.monto && (
+                      <SuccessMessage message={`✓ Rango válido: Bs 1,500 - Bs 8,000`} />
+                    )}
+                    <div className="input-hint">
+                      Rango permitido: Bs 1,500 - Bs 8,000
+                    </div>
+                  </div>
+                  
+                  <div className="form-group">
+                    <label className="form-label">
+                      Cargo *
+                      {formErrors.id_cargo && <span className="error-indicator">!</span>}
+                    </label>
+                    <select
+                      value={form.id_cargo}
+                      onChange={(e) => setForm({...form, id_cargo: e.target.value})}
+                      className={`form-input ${formErrors.id_cargo ? 'error' : ''}`}
+                      required
+                    >
+                      <option value="">Seleccionar cargo</option>
+                      {cargos.map(cargo => (
+                        <option key={cargo.id_cargo} value={cargo.id_cargo}>
+                          {cargo.nombre}
+                        </option>
+                      ))}
+                    </select>
+                    <ErrorMessage error={formErrors.id_cargo} />
+                    {form.id_cargo && !formErrors.id_cargo && (
+                      <SuccessMessage message="✓ Cargo disponible" />
+                    )}
+                  </div>
+                </div>
+
                 <div className="form-group">
-                  <label>Monto (Bs) *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    max="100000"
-                    value={form.monto}
-                    onChange={(e) => setForm({...form, monto: e.target.value})}
-                    required
-                    placeholder="0.00"
+                  <label className="form-label">
+                    Descripción
+                    {formErrors.descripcion && <span className="error-indicator">!</span>}
+                  </label>
+                  <textarea
+                    value={form.descripcion}
+                    onChange={(e) => setForm({...form, descripcion: e.target.value})}
+                    className={`form-input ${formErrors.descripcion ? 'error' : ''}`}
+                    placeholder="Descripción adicional del sueldo (opcional)..."
+                    rows="3"
+                    maxLength={200}
                   />
-                </div>
-                <div className="form-group">
-                  <label>Cargo *</label>
-                  <select
-                    value={form.id_cargo}
-                    onChange={(e) => setForm({...form, id_cargo: e.target.value})}
-                    required
-                  >
-                    <option value="">Seleccionar cargo</option>
-                    {cargos.map(cargo => (
-                      <option key={cargo.id_cargo} value={cargo.id_cargo}>
-                        {cargo.nombre}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="input-footer">
+                    <span className="char-count">{form.descripcion?.length || 0}/200</span>
+                    {formErrors.descripcion && (
+                      <ErrorMessage error={formErrors.descripcion} />
+                    )}
+                  </div>
                 </div>
               </div>
-              <div className="form-group">
-                <label>Descripción</label>
-                <textarea
-                  value={form.descripcion}
-                  onChange={(e) => setForm({...form, descripcion: e.target.value})}
-                  placeholder="Descripción adicional del sueldo..."
-                  rows="3"
-                  maxLength={100}
-                />
-                <span className="char-count">{form.descripcion?.length || 0}/100</span>
-              </div>
+              
               <div className="form-actions">
-                <button type="submit" className="btn btn-success">
-                  <Save size={16} />
-                  {editingId ? "Actualizar" : "Guardar"}
+                <button 
+                  type="submit" 
+                  className="btn btn-success"
+                  disabled={actionLoading === 'guardar'}
+                >
+                  {actionLoading === 'guardar' ? (
+                    <>
+                      <Loader size={16} className="spinner" />
+                      {editingId ? "Actualizando..." : "Guardando..."}
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      {editingId ? "Actualizar" : "Guardar"}
+                    </>
+                  )}
                 </button>
-                <button type="button" onClick={resetForm} className="btn btn-cancel">
+                <button 
+                  type="button" 
+                  onClick={resetForm}
+                  className="btn btn-cancel"
+                >
                   Cancelar
                 </button>
               </div>
@@ -383,8 +585,18 @@ export default function Sueldos() {
       {/* Tabla de sueldos */}
       <div className="table-card">
         <div className="table-header">
-          <DollarSign size={20} />
-          <h2>Sueldos ({filteredSueldos.length})</h2>
+          <div className="table-title">
+            <DollarSign size={20} />
+            <h2>Sueldos ({filteredSueldos.length})</h2>
+          </div>
+          <div className="table-actions">
+            {(filtroCargo !== "todos" || searchTerm) && (
+              <span className="filter-indicator">
+                {filtroCargo !== "todos" && `Cargo: ${cargos.find(c => c.id_cargo.toString() === filtroCargo)?.nombre}`}
+                {searchTerm && ` | Búsqueda: "${searchTerm}"`}
+              </span>
+            )}
+          </div>
         </div>
         <div className="table-container">
           <table>
@@ -395,31 +607,75 @@ export default function Sueldos() {
                 <th>Cargo</th>
                 <th>Empleados</th>
                 <th>Descripción</th>
+                <th>Estado</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {filteredSueldos.map(sueldo => {
                 const empleadosCount = empleados.filter(emp => emp.id_cargo === sueldo.id_cargo).length;
+                const estaEnRango = sueldo.monto >= 1500 && sueldo.monto <= 8000;
+                
                 return (
                   <tr key={sueldo.id_sueldo}>
                     <td className="id-cell">{sueldo.id_sueldo}</td>
                     <td className="amount-cell">
-                      <strong>
-                        {new Intl.NumberFormat('es-BO', { 
-                          style: 'currency', 
-                          currency: 'BOB' 
-                        }).format(sueldo.monto)}
-                      </strong>
+                      <div className="amount-content">
+                        <strong>
+                          {new Intl.NumberFormat('es-BO', { 
+                            style: 'currency', 
+                            currency: 'BOB' 
+                          }).format(sueldo.monto)}
+                        </strong>
+                        {!estaEnRango && (
+                          <div className="amount-warning">
+                            <AlertTriangle size={12} />
+                            {sueldo.monto < 1500 ? 'Muy bajo' : 'Muy alto'}
+                          </div>
+                        )}
+                      </div>
                     </td>
-                    <td className="name-cell">{sueldo.cargos?.nombre || 'N/A'}</td>
+                    <td className="name-cell">
+                      <div className="cargo-info">
+                        <span className="cargo-name">{sueldo.cargos?.nombre || 'N/A'}</span>
+                        <span className="cargo-id">ID: {sueldo.id_cargo}</span>
+                      </div>
+                    </td>
                     <td className="count-cell">
-                      <span className={`badge ${empleadosCount > 0 ? 'badge-warning' : 'badge-info'}`}>
-                        <Users size={12} />
-                        {empleadosCount}
-                      </span>
+                      <div className={`employee-count ${empleadosCount > 0 ? 'has-employees' : 'no-employees'}`}>
+                        <Users size={14} />
+                        <span>{empleadosCount}</span>
+                        {empleadosCount > 0 && (
+                          <div className="employee-tooltip">
+                            {empleadosCount} empleado(s) asignado(s)
+                          </div>
+                        )}
+                      </div>
                     </td>
-                    <td className="desc-cell">{sueldo.descripcion || '-'}</td>
+                    <td className="desc-cell">
+                      {sueldo.descripcion ? (
+                        <div className="description-text" title={sueldo.descripcion}>
+                          {sueldo.descripcion}
+                        </div>
+                      ) : (
+                        <span className="no-description">-</span>
+                      )}
+                    </td>
+                    <td className="status-cell">
+                      <div className={`status-badge ${estaEnRango ? 'valid' : 'invalid'}`}>
+                        {estaEnRango ? (
+                          <>
+                            <CheckCircle2 size={12} />
+                            Válido
+                          </>
+                        ) : (
+                          <>
+                            <AlertTriangle size={12} />
+                            {sueldo.monto < 1500 ? 'Bajo' : 'Alto'}
+                          </>
+                        )}
+                      </div>
+                    </td>
                     <td className="actions-cell">
                       <div className="action-buttons-small">
                         <button
@@ -432,10 +688,18 @@ export default function Sueldos() {
                         <button
                           onClick={() => eliminarSueldo(sueldo.id_sueldo)}
                           className="btn-delete"
-                          title="Eliminar sueldo"
-                          disabled={empleadosCount > 0}
+                          disabled={actionLoading === `delete-${sueldo.id_sueldo}` || empleadosCount > 0}
+                          title={
+                            empleadosCount > 0 
+                              ? `No se puede eliminar - ${empleadosCount} empleado(s) asignado(s)` 
+                              : "Eliminar sueldo"
+                          }
                         >
-                          <Trash2 size={14} />
+                          {actionLoading === `delete-${sueldo.id_sueldo}` ? (
+                            <Loader size={14} className="spinner" />
+                          ) : (
+                            <Trash2 size={14} />
+                          )}
                         </button>
                       </div>
                     </td>
@@ -446,7 +710,16 @@ export default function Sueldos() {
           </table>
           {filteredSueldos.length === 0 && (
             <div className="empty-state">
+              <DollarSign size={48} />
               <p>No se encontraron sueldos</p>
+              {(filtroCargo !== "todos" || searchTerm) && (
+                <button 
+                  onClick={resetFiltros}
+                  className="btn btn-outline"
+                >
+                  Limpiar filtros
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -455,7 +728,7 @@ export default function Sueldos() {
       <style jsx>{`
         .container {
           padding: 20px;
-          max-width: 1200px;
+          max-width: 1400px;
           margin: 0 auto;
         }
 
@@ -463,17 +736,31 @@ export default function Sueldos() {
           margin-bottom: 30px;
         }
 
-        .page-header h1 {
+        .header-content {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 20px;
+        }
+
+        .header-title {
+          display: flex;
+          align-items: flex-start;
+          gap: 16px;
+        }
+
+        .header-title h1 {
           font-size: 28px;
           color: #7a3b06;
-          margin-bottom: 8px;
+          margin-bottom: 4px;
           font-weight: 700;
         }
 
-        .page-header p {
+        .header-title p {
           color: #6d4611;
           font-size: 14px;
           opacity: 0.9;
+          margin: 0;
         }
 
         .loading-container {
@@ -516,6 +803,18 @@ export default function Sueldos() {
           color: #155724;
         }
 
+        .alert.warning {
+          background-color: #fff3cd;
+          border: 1px solid #ffeaa7;
+          color: #856404;
+        }
+
+        .alert.info {
+          background-color: #e3f2fd;
+          border: 1px solid #bbdefb;
+          color: #1976d2;
+        }
+
         .alert-close {
           margin-left: auto;
           background: none;
@@ -525,9 +824,17 @@ export default function Sueldos() {
         }
 
         .search-filter-bar {
-          display: flex;
-          gap: 16px;
+          background: white;
+          padding: 20px;
+          border-radius: 12px;
+          border: 1px solid #e9d8b5;
           margin-bottom: 24px;
+        }
+
+        .search-section {
+          display: flex;
+          gap: 12px;
+          align-items: center;
           flex-wrap: wrap;
         }
 
@@ -559,46 +866,7 @@ export default function Sueldos() {
           border-radius: 8px;
           font-size: 14px;
           min-width: 200px;
-        }
-
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 16px;
-          margin-bottom: 24px;
-        }
-
-        .stat-card {
           background: white;
-          padding: 20px;
-          border-radius: 12px;
-          border: 1px solid #e9d8b5;
-          display: flex;
-          align-items: center;
-          gap: 16px;
-        }
-
-        .stat-icon {
-          background: #f8f5ee;
-          padding: 12px;
-          border-radius: 8px;
-          color: #7a3b06;
-        }
-
-        .stat-value {
-          font-size: 20px;
-          font-weight: 700;
-          color: #7a3b06;
-        }
-
-        .stat-label {
-          font-size: 12px;
-          color: #6d4611;
-          opacity: 0.8;
-        }
-
-        .action-buttons {
-          margin-bottom: 24px;
         }
 
         .btn {
@@ -619,6 +887,11 @@ export default function Sueldos() {
           color: white;
         }
 
+        .btn-secondary {
+          background-color: #6d4611;
+          color: white;
+        }
+
         .btn-success {
           background-color: #28a745;
           color: white;
@@ -629,15 +902,89 @@ export default function Sueldos() {
           color: white;
         }
 
+        .btn-outline {
+          background: transparent;
+          border: 1px solid #7a3b06;
+          color: #7a3b06;
+        }
+
+        .btn-outline:hover {
+          background: #7a3b06;
+          color: white;
+        }
+
         .btn:hover {
           opacity: 0.9;
           transform: translateY(-1px);
         }
 
         .btn:disabled {
-          opacity: 0.5;
+          opacity: 0.6;
           cursor: not-allowed;
           transform: none;
+        }
+
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 16px;
+          margin-bottom: 24px;
+        }
+
+        .stat-card {
+          background: white;
+          padding: 20px;
+          border-radius: 12px;
+          border: 1px solid #e9d8b5;
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          transition: transform 0.2s;
+        }
+
+        .stat-card:hover {
+          transform: translateY(-2px);
+        }
+
+        .stat-icon {
+          padding: 12px;
+          border-radius: 8px;
+        }
+
+        .stat-icon.primary {
+          background: #f8f5ee;
+          color: #7a3b06;
+        }
+
+        .stat-icon.success {
+          background: #e8f5e8;
+          color: #28a745;
+        }
+
+        .stat-icon.warning {
+          background: #fff3cd;
+          color: #856404;
+        }
+
+        .stat-icon.info {
+          background: #e3f2fd;
+          color: #1976d2;
+        }
+
+        .stat-value {
+          font-size: 20px;
+          font-weight: 700;
+          color: #7a3b06;
+        }
+
+        .stat-label {
+          font-size: 12px;
+          color: #6d4611;
+          opacity: 0.8;
+        }
+
+        .action-buttons {
+          margin-bottom: 24px;
         }
 
         .modal-overlay {
@@ -656,19 +1003,56 @@ export default function Sueldos() {
 
         .modal {
           background: white;
-          padding: 24px;
           border-radius: 12px;
           border: 1px solid #e9d8b5;
-          max-width: 500px;
+          max-width: 600px;
           width: 100%;
           max-height: 90vh;
           overflow-y: auto;
         }
 
-        .modal h3 {
+        .modal-header {
+          padding: 24px;
+          border-bottom: 1px solid #e9d8b5;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .modal-header h3 {
           color: #7a3b06;
-          margin-bottom: 20px;
+          margin: 0;
           font-size: 20px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .btn-close {
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: #6d4611;
+          padding: 5px;
+        }
+
+        .form-container {
+          padding: 24px;
+        }
+
+        .form-section {
+          margin-bottom: 24px;
+        }
+
+        .form-section h4 {
+          color: #7a3b06;
+          margin-bottom: 16px;
+          font-size: 16px;
+          border-bottom: 1px solid #e9d8b5;
+          padding-bottom: 8px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
         }
 
         .form-row {
@@ -680,37 +1064,77 @@ export default function Sueldos() {
 
         .form-group {
           margin-bottom: 16px;
-          position: relative;
         }
 
-        .form-group label {
+        .form-label {
           display: block;
           margin-bottom: 6px;
           color: #6d4611;
           font-weight: 500;
+          display: flex;
+          align-items: center;
+          gap: 5px;
         }
 
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
+        .form-input {
           width: 100%;
           padding: 10px;
           border: 1px solid #e9d8b5;
           border-radius: 6px;
           font-size: 14px;
+          transition: border-color 0.2s;
         }
 
-        .form-group input:focus,
-        .form-group select:focus,
-        .form-group textarea:focus {
+        .form-input:focus {
           outline: none;
           border-color: #7a3b06;
         }
 
+        .form-input.error {
+          border-color: #dc3545;
+          background-color: #fff5f5;
+        }
+
+        .error-indicator {
+          color: #dc3545;
+          font-weight: bold;
+        }
+
+        .error-message {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          margin-top: 4px;
+          font-weight: 500;
+          color: #dc3545;
+        }
+
+        .success-message {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          margin-top: 4px;
+          font-weight: 500;
+          color: #28a745;
+        }
+
+        .input-hint {
+          font-size: 12px;
+          color: #6d4611;
+          opacity: 0.7;
+          margin-top: 4px;
+        }
+
+        .input-footer {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 4px;
+        }
+
         .char-count {
-          position: absolute;
-          right: 10px;
-          bottom: 10px;
           font-size: 12px;
           color: #6d4611;
           opacity: 0.7;
@@ -720,6 +1144,8 @@ export default function Sueldos() {
           display: flex;
           gap: 12px;
           margin-top: 24px;
+          padding-top: 16px;
+          border-top: 1px solid #e9d8b5;
         }
 
         .table-card {
@@ -734,14 +1160,26 @@ export default function Sueldos() {
           border-bottom: 1px solid #e9d8b5;
           display: flex;
           align-items: center;
-          gap: 10px;
+          justify-content: space-between;
           background-color: #f8f5ee;
         }
 
-        .table-header h2 {
+        .table-title {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .table-title h2 {
           color: #7a3b06;
           margin: 0;
           font-size: 18px;
+        }
+
+        .filter-indicator {
+          font-size: 12px;
+          color: #6d4611;
+          opacity: 0.7;
         }
 
         .table-container {
@@ -751,7 +1189,7 @@ export default function Sueldos() {
         table {
           width: 100%;
           border-collapse: collapse;
-          min-width: 800px;
+          min-width: 1000px;
         }
 
         th {
@@ -778,23 +1216,128 @@ export default function Sueldos() {
           font-weight: 600;
         }
 
+        .amount-content {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .amount-warning {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 11px;
+          color: #dc3545;
+          font-weight: 500;
+        }
+
         .name-cell {
           font-weight: 500;
         }
 
-        .desc-cell {
-          max-width: 200px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+        .cargo-info {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .cargo-name {
+          font-weight: 600;
+          color: #7a3b06;
+        }
+
+        .cargo-id {
+          font-size: 11px;
+          color: #6d4611;
+          opacity: 0.7;
         }
 
         .count-cell {
           text-align: center;
         }
 
+        .employee-count {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 10px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 600;
+          position: relative;
+        }
+
+        .employee-count.has-employees {
+          background: #e8f5e8;
+          color: #28a745;
+        }
+
+        .employee-count.no-employees {
+          background: #f8f9fa;
+          color: #6c757d;
+        }
+
+        .employee-tooltip {
+          position: absolute;
+          bottom: 100%;
+          left: 50%;
+          transform: translateX(-50%);
+          background: #333;
+          color: white;
+          padding: 6px 10px;
+          border-radius: 4px;
+          font-size: 11px;
+          white-space: nowrap;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.2s;
+        }
+
+        .employee-count:hover .employee-tooltip {
+          opacity: 1;
+        }
+
+        .desc-cell {
+          max-width: 200px;
+        }
+
+        .description-text {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .no-description {
+          color: #6c757d;
+          font-style: italic;
+        }
+
+        .status-cell {
+          text-align: center;
+        }
+
+        .status-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 6px 10px;
+          border-radius: 12px;
+          font-size: 12px;
+          font-weight: 600;
+        }
+
+        .status-badge.valid {
+          background: #e8f5e8;
+          color: #28a745;
+        }
+
+        .status-badge.invalid {
+          background: #fff3cd;
+          color: #856404;
+        }
+
         .actions-cell {
-          width: 100px;
+          width: 120px;
         }
 
         .action-buttons-small {
@@ -830,38 +1373,27 @@ export default function Sueldos() {
           opacity: 0.8;
         }
 
-        .badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-size: 12px;
-          font-weight: 600;
-        }
-
-        .badge-info {
-          background-color: #e3f2fd;
-          color: #1976d2;
-        }
-
-        .badge-warning {
-          background-color: #fff3e0;
-          color: #f57c00;
-        }
-
         .empty-state {
-          padding: 40px 20px;
+          padding: 60px 20px;
           text-align: center;
           color: #6d4611;
           opacity: 0.7;
+        }
+
+        .empty-state .btn {
+          margin-top: 12px;
         }
 
         @media (max-width: 768px) {
           .container {
             padding: 16px;
           }
-          .search-filter-bar {
+          .header-content {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 16px;
+          }
+          .search-section {
             flex-direction: column;
           }
           .search-box {
@@ -879,11 +1411,22 @@ export default function Sueldos() {
           .modal {
             margin: 20px;
           }
+          .table-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+          }
         }
 
         @media (max-width: 480px) {
           .stats-grid {
             grid-template-columns: 1fr;
+          }
+          .action-buttons {
+            flex-direction: column;
+          }
+          .action-buttons .btn {
+            justify-content: center;
           }
         }
       `}</style>

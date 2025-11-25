@@ -22,10 +22,7 @@ import {
   Activity,
   Clock,
   MapPin,
-  AlertCircle,
-  Star,
-  Award,
-  Shield
+  AlertCircle
 } from "lucide-react";
 
 export default function Proveedores() {
@@ -33,7 +30,6 @@ export default function Proveedores() {
   const [productos, setProductos] = useState([]);
   const [proveedoresProductos, setProveedoresProductos] = useState([]);
   const [proveedoresContactos, setProveedoresContactos] = useState([]);
-  const [proveedoresEvaluaciones, setProveedoresEvaluaciones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -41,14 +37,12 @@ export default function Proveedores() {
   const [showForm, setShowForm] = useState(false);
   const [showProductosModal, setShowProductosModal] = useState(false);
   const [showContactosModal, setShowContactosModal] = useState(false);
-  const [showEvaluacionesModal, setShowEvaluacionesModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [proveedorSeleccionado, setProveedorSeleccionado] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("todos");
-  const [filtroCalidad, setFiltroCalidad] = useState("todos");
 
   const [form, setForm] = useState({
     ci_proveedor: '',
@@ -79,14 +73,6 @@ export default function Proveedores() {
     es_contacto_principal: false
   });
 
-  const [evaluacionForm, setEvaluacionForm] = useState({
-    puntuacion_calidad: 5,
-    puntuacion_entrega: 5,
-    puntuacion_precio: 5,
-    puntuacion_servicio: 5,
-    comentarios: ''
-  });
-
   const [formErrors, setFormErrors] = useState({});
   const [productoFormErrors, setProductoFormErrors] = useState({});
   const [contactoFormErrors, setContactoFormErrors] = useState({});
@@ -113,13 +99,11 @@ export default function Proveedores() {
         productosRes, 
         proveedoresProductosRes,
         proveedoresContactosRes,
-        proveedoresEvaluacionesRes
       ] = await Promise.all([
         supabase.from('proveedores').select('*').order('fecha_registro', { ascending: false }),
         supabase.from('productos').select('*').order('nombre'),
         supabase.from('proveedores_productos').select('*'),
         supabase.from('proveedores_contactos').select('*'),
-        supabase.from('proveedores_evaluaciones').select('*')
       ]);
       
       const errors = [
@@ -127,7 +111,6 @@ export default function Proveedores() {
         productosRes.error, 
         proveedoresProductosRes.error,
         proveedoresContactosRes.error,
-        proveedoresEvaluacionesRes.error
       ].filter(error => error);
 
       if (errors.length > 0) {
@@ -138,7 +121,6 @@ export default function Proveedores() {
       setProductos(productosRes.data || []);
       setProveedoresProductos(proveedoresProductosRes.data || []);
       setProveedoresContactos(proveedoresContactosRes.data || []);
-      setProveedoresEvaluaciones(proveedoresEvaluacionesRes.data || []);
     } catch (error) {
       showMessage(`Error al cargar datos: ${error.message}`);
       console.error('Error:', error);
@@ -395,46 +377,8 @@ export default function Proveedores() {
     }
   };
 
-  const agregarEvaluacionProveedor = async () => {
-    if (!proveedorSeleccionado) return;
-    
-    setActionLoading('agregar-evaluacion');
-    
-    try {
-      const evaluacionData = {
-        ci_proveedor: proveedorSeleccionado.ci_proveedor,
-        puntuacion_calidad: parseInt(evaluacionForm.puntuacion_calidad),
-        puntuacion_entrega: parseInt(evaluacionForm.puntuacion_entrega),
-        puntuacion_precio: parseInt(evaluacionForm.puntuacion_precio),
-        puntuacion_servicio: parseInt(evaluacionForm.puntuacion_servicio),
-        comentarios: evaluacionForm.comentarios.trim() || null,
-        evaluado_por: 'Sistema' // En una app real, sería el usuario logueado
-      };
-
-      const { error } = await supabase
-        .from('proveedores_evaluaciones')
-        .insert([evaluacionData]);
-
-      if (error) throw error;
-
-      showMessage("Evaluación agregada exitosamente", "success");
-      setEvaluacionForm({
-        puntuacion_calidad: 5,
-        puntuacion_entrega: 5,
-        puntuacion_precio: 5,
-        puntuacion_servicio: 5,
-        comentarios: ''
-      });
-      cargarDatos();
-    } catch (error) {
-      showMessage(error.message);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   const eliminarProveedor = async (ci) => {
-    if (!window.confirm('¿Estás seguro de eliminar este proveedor? Se eliminarán todos sus productos, contactos y evaluaciones asociadas.')) {
+    if (!window.confirm('¿Estás seguro de eliminar este proveedor? Se eliminarán todos sus productos y contactos asociados.')) {
       return;
     }
 
@@ -455,13 +399,6 @@ export default function Proveedores() {
         .eq('ci_proveedor', ci);
 
       if (errorContactos) throw errorContactos;
-
-      const { error: errorEvaluaciones } = await supabase
-        .from('proveedores_evaluaciones')
-        .delete()
-        .eq('ci_proveedor', ci);
-
-      if (errorEvaluaciones) throw errorEvaluaciones;
 
       const { error } = await supabase
         .from('proveedores')
@@ -527,16 +464,6 @@ export default function Proveedores() {
     }
   };
 
-  const getPromedioEvaluaciones = (ci_proveedor) => {
-    const evaluaciones = proveedoresEvaluaciones.filter(ev => ev.ci_proveedor === ci_proveedor);
-    if (evaluaciones.length === 0) return 0;
-    
-    const total = evaluaciones.reduce((sum, evaluacion) => 
-      sum + evaluacion.puntuacion_calidad + evaluacion.puntuacion_entrega + evaluacion.puntuacion_precio + evaluacion.puntuacion_servicio, 0);
-    
-    return (total / (evaluaciones.length * 4)).toFixed(1);
-  };
-
   const resetForm = () => {
     setForm({ 
       ci_proveedor: '',
@@ -556,7 +483,6 @@ export default function Proveedores() {
   const resetFiltros = () => {
     setSearchTerm("");
     setFiltroEstado("todos");
-    setFiltroCalidad("todos");
   };
 
   const getProductosProveedor = (ci_proveedor) => {
@@ -565,10 +491,6 @@ export default function Proveedores() {
 
   const getContactosProveedor = (ci_proveedor) => {
     return proveedoresContactos.filter(pc => pc.ci_proveedor === ci_proveedor);
-  };
-
-  const getEvaluacionesProveedor = (ci_proveedor) => {
-    return proveedoresEvaluaciones.filter(pe => pe.ci_proveedor === ci_proveedor);
   };
 
   const getProductoNombre = (id_producto) => {
@@ -592,8 +514,7 @@ export default function Proveedores() {
   const estadisticas = {
     totalProveedores: proveedores.length,
     proveedoresActivos: proveedores.filter(p => p.estado === 'activo').length,
-    totalProductosAsociados: proveedoresProductos.length,
-    totalEvaluaciones: proveedoresEvaluaciones.length
+    totalProductosAsociados: proveedoresProductos.length
   };
 
   const ErrorMessage = ({ error }) => (
@@ -684,15 +605,6 @@ export default function Proveedores() {
             <div className="stat-label">Productos Asoc.</div>
           </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon info">
-            <Star size={24} />
-          </div>
-          <div className="stat-info">
-            <div className="stat-value">{estadisticas.totalEvaluaciones}</div>
-            <div className="stat-label">Evaluaciones</div>
-          </div>
-        </div>
       </div>
 
       <div className="search-filter-bar">
@@ -755,7 +667,6 @@ export default function Proveedores() {
                 <th>Contacto</th>
                 <th>Información</th>
                 <th>Productos</th>
-                <th>Evaluación</th>
                 <th>Estado</th>
                 <th>Acciones</th>
               </tr>
@@ -764,7 +675,6 @@ export default function Proveedores() {
               {filteredProveedores.map(proveedor => {
                 const productosCount = getProductosProveedor(proveedor.ci_proveedor).length;
                 const contactosCount = getContactosProveedor(proveedor.ci_proveedor).length;
-                const promedioEvaluacion = getPromedioEvaluaciones(proveedor.ci_proveedor);
                 
                 return (
                   <tr key={proveedor.ci_proveedor}>
@@ -823,18 +733,6 @@ export default function Proveedores() {
                         </div>
                       </div>
                     </td>
-                    <td className="rating-cell">
-                      {promedioEvaluacion > 0 ? (
-                        <div className="rating-badge">
-                          <Star size={12} fill="currentColor" />
-                          {promedioEvaluacion}/5
-                        </div>
-                      ) : (
-                        <div className="rating-badge no-rating">
-                          Sin evaluar
-                        </div>
-                      )}
-                    </td>
                     <td className="status-cell">
                       <div className={`status-badge ${proveedor.estado}`}>
                         {proveedor.estado === 'activo' ? <CheckCircle size={12} /> : 
@@ -883,16 +781,6 @@ export default function Proveedores() {
                           title="Gestionar contactos"
                         >
                           <User size={14} />
-                        </button>
-                        <button
-                          onClick={() => {
-                            setProveedorSeleccionado(proveedor);
-                            setShowEvaluacionesModal(true);
-                          }}
-                          className="btn-warning"
-                          title="Evaluar proveedor"
-                        >
-                          <Star size={14} />
                         </button>
                         <button
                           onClick={() => eliminarProveedor(proveedor.ci_proveedor)}
@@ -1519,179 +1407,6 @@ export default function Proveedores() {
         </div>
       )}
 
-      {showEvaluacionesModal && proveedorSeleccionado && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <div className="modal-header">
-              <h3>
-                <Star size={20} />
-                Evaluar a {proveedorSeleccionado.nombre_empresa}
-              </h3>
-              <button onClick={() => setShowEvaluacionesModal(false)} className="btn-close">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="modal-content">
-              <div className="form-section">
-                <h4>
-                  <Award size={16} />
-                  Nueva Evaluación
-                </h4>
-                
-                <div className="rating-grid">
-                  <div className="rating-item">
-                    <label className="form-label">Calidad del Producto</label>
-                    <select
-                      value={evaluacionForm.puntuacion_calidad}
-                      onChange={(e) => setEvaluacionForm({...evaluacionForm, puntuacion_calidad: e.target.value})}
-                      className="form-input"
-                    >
-                      {[1,2,3,4,5].map(num => (
-                        <option key={num} value={num}>
-                          {num} ★ - {num === 1 ? 'Muy mala' : num === 2 ? 'Mala' : num === 3 ? 'Regular' : num === 4 ? 'Buena' : 'Excelente'}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div className="rating-item">
-                    <label className="form-label">Puntualidad en Entrega</label>
-                    <select
-                      value={evaluacionForm.puntuacion_entrega}
-                      onChange={(e) => setEvaluacionForm({...evaluacionForm, puntuacion_entrega: e.target.value})}
-                      className="form-input"
-                    >
-                      {[1,2,3,4,5].map(num => (
-                        <option key={num} value={num}>
-                          {num} ★ - {num === 1 ? 'Muy mala' : num === 2 ? 'Mala' : num === 3 ? 'Regular' : num === 4 ? 'Buena' : 'Excelente'}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div className="rating-item">
-                    <label className="form-label">Precio Competitivo</label>
-                    <select
-                      value={evaluacionForm.puntuacion_precio}
-                      onChange={(e) => setEvaluacionForm({...evaluacionForm, puntuacion_precio: e.target.value})}
-                      className="form-input"
-                    >
-                      {[1,2,3,4,5].map(num => (
-                        <option key={num} value={num}>
-                          {num} ★ - {num === 1 ? 'Muy malo' : num === 2 ? 'Malo' : num === 3 ? 'Regular' : num === 4 ? 'Bueno' : 'Excelente'}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div className="rating-item">
-                    <label className="form-label">Servicio al Cliente</label>
-                    <select
-                      value={evaluacionForm.puntuacion_servicio}
-                      onChange={(e) => setEvaluacionForm({...evaluacionForm, puntuacion_servicio: e.target.value})}
-                      className="form-input"
-                    >
-                      {[1,2,3,4,5].map(num => (
-                        <option key={num} value={num}>
-                          {num} ★ - {num === 1 ? 'Muy malo' : num === 2 ? 'Malo' : num === 3 ? 'Regular' : num === 4 ? 'Bueno' : 'Excelente'}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Comentarios</label>
-                  <textarea
-                    value={evaluacionForm.comentarios}
-                    onChange={(e) => setEvaluacionForm({...evaluacionForm, comentarios: e.target.value})}
-                    className="form-input"
-                    placeholder="Comentarios adicionales sobre el proveedor..."
-                    rows="3"
-                  />
-                </div>
-
-                <button
-                  onClick={agregarEvaluacionProveedor}
-                  disabled={actionLoading === 'agregar-evaluacion'}
-                  className="btn btn-success"
-                >
-                  {actionLoading === 'agregar-evaluacion' ? (
-                    <>
-                      <Loader size={14} className="spinner" />
-                      Evaluando...
-                    </>
-                  ) : (
-                    <>
-                      <Star size={14} />
-                      Agregar Evaluación
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className="list-section">
-                <h4>
-                  <Shield size={16} />
-                  Historial de Evaluaciones ({getEvaluacionesProveedor(proveedorSeleccionado.ci_proveedor).length})
-                </h4>
-                {getEvaluacionesProveedor(proveedorSeleccionado.ci_proveedor).length > 0 ? (
-                  <div className="items-list">
-                    {getEvaluacionesProveedor(proveedorSeleccionado.ci_proveedor).map(evaluacion => {
-                      const promedio = (
-                        (evaluacion.puntuacion_calidad + evaluacion.puntuacion_entrega + evaluacion.puntuacion_precio + evaluacion.puntuacion_servicio) / 4
-                      ).toFixed(1);
-                      
-                      return (
-                        <div key={evaluacion.id_evaluacion} className="item-card">
-                          <div className="item-info">
-                            <div className="item-header">
-                              <span className="item-name">
-                                Evaluación del {new Date(evaluacion.fecha_evaluacion).toLocaleDateString('es-BO')}
-                              </span>
-                              <span className="rating-badge">
-                                <Star size={12} fill="currentColor" />
-                                {promedio}/5
-                              </span>
-                            </div>
-                            <div className="rating-details">
-                              <span>Calidad: {evaluacion.puntuacion_calidad}★</span>
-                              <span>Entrega: {evaluacion.puntuacion_entrega}★</span>
-                              <span>Precio: {evaluacion.puntuacion_precio}★</span>
-                              <span>Servicio: {evaluacion.puntuacion_servicio}★</span>
-                            </div>
-                            {evaluacion.comentarios && (
-                              <div className="comments">
-                                {evaluacion.comentarios}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="empty-state-small">
-                    <Shield size={32} />
-                    <p>No hay evaluaciones registradas</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="modal-actions">
-              <button 
-                onClick={() => setShowEvaluacionesModal(false)}
-                className="btn btn-cancel"
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <style jsx>{`
         .container {
           padding: 20px;
@@ -1810,11 +1525,6 @@ export default function Proveedores() {
           color: #7a3b06;
         }
 
-        .stat-icon.secondary {
-          background: #e3f2fd;
-          color: #1976d2;
-        }
-
         .stat-icon.success {
           background: #e8f5e8;
           color: #28a745;
@@ -1823,11 +1533,6 @@ export default function Proveedores() {
         .stat-icon.warning {
           background: #fff3cd;
           color: #856404;
-        }
-
-        .stat-icon.info {
-          background: #f3e5f5;
-          color: #7b1fa2;
         }
 
         .stat-value {
@@ -2033,23 +1738,6 @@ export default function Proveedores() {
           color: #28a745;
         }
 
-        .rating-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-          padding: 4px 8px;
-          background: #fff3cd;
-          border-radius: 12px;
-          font-size: 12px;
-          font-weight: 500;
-          color: #856404;
-        }
-
-        .rating-badge.no-rating {
-          background: #f8f9fa;
-          color: #6c757d;
-        }
-
         .status-badge {
           display: inline-flex;
           align-items: center;
@@ -2076,7 +1764,7 @@ export default function Proveedores() {
         }
 
         .actions-cell {
-          width: 200px;
+          width: 180px;
         }
 
         .action-buttons-small {
@@ -2088,8 +1776,7 @@ export default function Proveedores() {
         .btn-edit,
         .btn-delete,
         .btn-info,
-        .btn-secondary,
-        .btn-warning {
+        .btn-secondary {
           display: flex;
           align-items: center;
           justify-content: center;
@@ -2115,11 +1802,6 @@ export default function Proveedores() {
           color: white;
         }
 
-        .btn-warning {
-          background-color: #fd7e14;
-          color: white;
-        }
-
         .btn-delete {
           background-color: #dc3545;
           color: white;
@@ -2128,7 +1810,6 @@ export default function Proveedores() {
         .btn-edit:hover,
         .btn-info:hover,
         .btn-secondary:hover,
-        .btn-warning:hover,
         .btn-delete:hover {
           opacity: 0.8;
         }
@@ -2403,36 +2084,6 @@ export default function Proveedores() {
           gap: 12px;
         }
 
-        .rating-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 16px;
-          margin-bottom: 16px;
-        }
-
-        .rating-item {
-          margin-bottom: 12px;
-        }
-
-        .rating-details {
-          display: flex;
-          gap: 12px;
-          flex-wrap: wrap;
-          font-size: 12px;
-          color: #6d4611;
-          margin-top: 4px;
-        }
-
-        .comments {
-          margin-top: 8px;
-          padding: 8px;
-          background: #f8f9fa;
-          border-radius: 4px;
-          font-size: 12px;
-          color: #495057;
-          border-left: 3px solid #6c757d;
-        }
-
         @media (max-width: 768px) {
           .container {
             padding: 16px;
@@ -2462,9 +2113,6 @@ export default function Proveedores() {
           }
           .modal.large {
             max-width: calc(100vw - 40px);
-          }
-          .rating-grid {
-            grid-template-columns: 1fr;
           }
           .action-buttons {
             flex-direction: column;
