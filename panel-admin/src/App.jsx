@@ -1,6 +1,6 @@
 // src/App.jsx
 import { useState, useEffect } from "react";
-import { Routes, Route, Navigate } from "react-router-dom"; // ← Quita BrowserRouter de aquí
+import { Routes, Route, Navigate } from "react-router-dom"; // BrowserRouter se maneja en main.jsx
 import Layout from "./layout/Layout";
 import Dashboard from "./pages/Dashboard";
 import RolesCargos from "./pages/RolesCargos";
@@ -20,8 +20,8 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Verificar si hay un empleado logeado en localStorage
-    const savedEmpleado = localStorage.getItem('empleado');
+    // Revisar si hay un empleado guardado en localStorage
+    const savedEmpleado = localStorage.getItem("empleado");
     if (savedEmpleado) {
       setEmpleado(JSON.parse(savedEmpleado));
     }
@@ -29,30 +29,32 @@ function App() {
   }, []);
 
   const handleLogin = (empleadoData) => {
+    localStorage.setItem("empleado", JSON.stringify(empleadoData));
     setEmpleado(empleadoData);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('empleado');
+    localStorage.removeItem("empleado");
     setEmpleado(null);
   };
 
   if (loading) {
     return (
-      <div style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        height: "100vh",
-        background: "linear-gradient(135deg, #fef5e6 0%, #f8e1c5 100%)"
-      }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          background: "linear-gradient(135deg, #fef5e6 0%, #f8e1c5 100%)",
+        }}
+      >
         <div style={{ color: "#7a3b06", fontSize: "18px" }}>Cargando...</div>
       </div>
     );
   }
 
   return (
-    // ← Quitamos BrowserRouter de aquí porque ya está en main.jsx
     <>
       {!empleado ? (
         <Login onLogin={handleLogin} />
@@ -70,6 +72,8 @@ function App() {
             <Route path="proveedores" element={<Proveedores />} />
             <Route path="productos" element={<Productos />} />
             <Route path="gastos" element={<Gastos />} />
+            {/* Redirigir cualquier ruta desconocida al dashboard */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
       )}
